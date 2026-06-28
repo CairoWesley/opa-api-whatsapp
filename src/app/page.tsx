@@ -258,6 +258,10 @@ export default function AdminPage() {
 
           <p className="muted login-foot">
             Acesso via API é por token (Bearer). Este painel usa login e senha.
+            <br />
+            <a href="/api-docs" target="_blank" rel="noreferrer" style={{ color: "var(--acc2)" }}>
+              Ver documentação da API (Swagger) ↗
+            </a>
           </p>
         </form>
         {toast && <Toast {...toast} />}
@@ -292,6 +296,9 @@ export default function AdminPage() {
                   {d.title}
                 </button>
               ))}
+              <a className="doc-link doc-ext" href="/api-docs" target="_blank" rel="noreferrer">
+                🔌 API — Swagger (pública) ↗
+              </a>
             </aside>
             <article className="docs-body">
               {docLoading ? (
