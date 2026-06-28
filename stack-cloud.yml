@@ -1,0 +1,71 @@
+# Stack p/ Portainer CE (Swarm) via WEB EDITOR — sem bind mounts.
+# Imagens no ghcr (públicas). db já traz as migrations embutidas.
+# App/worker usam Postgres DIRETO (pg) + Redis. Kong/PostgREST não são usados.
+# Troque os secrets (POSTGRES_PASSWORD, APP_ENCRYPTION_KEY, SESSION_SECRET,
+# DASHBOARD_DEFAULT_PASSWORD, APP_ADMIN_TOKEN) em produção.
+version: "3.8"
+
+services:
+  db:
+    image: ghcr.io/cairowesley/opa-api-whatsapp-db:latest
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    deploy:
+      restart_policy:
+        condition: any
+
+  redis:
+    image: redis:7-alpine
+    command: sh -c 'redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no'
+    environment:
+      REDIS_PASSWORD: localredispass
+    deploy:
+      restart_policy:
+        condition: any
+
+  app:
+    image: ghcr.io/cairowesley/opa-api-whatsapp-app:latest
+    ports:
+      - "8390:3000"
+    environment:
+      DATABASE_URL: postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres
+      APP_ADMIN_TOKEN: local-admin-token
+      APP_ENCRYPTION_KEY: wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=
+      CACHE_TTL_SECONDS: "60"
+      OPA_PAGE_SIZE: "1000"
+      OPA_TIMEOUT_MS: "30000"
+      DEFAULT_LOOKBACK_DAYS: "30"
+      CRON_SECRET: local-admin-token
+      REDIS_URL: redis://:localredispass@redis:6379
+      SESSION_SECRET: troque-este-secret-de-sessao
+      SESSION_TTL_HOURS: "12"
+      DASHBOARD_DEFAULT_USER: admin
+      DASHBOARD_DEFAULT_PASSWORD: admin123
+    deploy:
+      restart_policy:
+        condition: any
+
+  worker:
+    image: ghcr.io/cairowesley/opa-api-whatsapp-worker:latest
+    environment:
+      DATABASE_URL: postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres
+      APP_ENCRYPTION_KEY: wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=
+      OPA_PAGE_SIZE: "1000"
+      OPA_TIMEOUT_MS: "30000"
+      DEFAULT_LOOKBACK_DAYS: "30"
+      CACHE_TTL_SECONDS: "60"
+      REDIS_URL: redis://:localredispass@redis:6379
+      WORKER_CONCURRENCY: "8"
+      WORKER_RESOURCE_CONCURRENCY: "3"
+      SCHEDULER_ENABLED: "true"
+      SCHEDULER_INTERVAL_SEC: "60"
+      REVALIDATE_HOURS: "12"
+    deploy:
+      restart_policy:
+        condition: any
+
+volumes:
+  db_data:

@@ -1,0 +1,17 @@
+# Postgres (Supabase) com as migrations já embutidas no init — pra deploy via
+# Web editor do Portainer (Swarm), sem bind mounts.
+FROM supabase/postgres:15.1.1.78
+COPY docker/postgres/00-roles.sql                          /docker-entrypoint-initdb.d/00-roles.sql
+COPY supabase/migrations/0001_init.sql                     /docker-entrypoint-initdb.d/01-init.sql
+COPY supabase/migrations/0002_dashboard_users.sql          /docker-entrypoint-initdb.d/01b-users.sql
+COPY supabase/migrations/0004_resource_tables.sql          /docker-entrypoint-initdb.d/01c-resources.sql
+COPY supabase/migrations/0005_api_tokens.sql               /docker-entrypoint-initdb.d/01d-tokens.sql
+COPY supabase/migrations/0006_client_config_token_scope.sql /docker-entrypoint-initdb.d/01e-config.sql
+COPY supabase/migrations/0007_resource_access.sql          /docker-entrypoint-initdb.d/01f-access.sql
+COPY supabase/migrations/0008_sync_runs.sql                /docker-entrypoint-initdb.d/01g-runs.sql
+COPY supabase/migrations/0009_settings.sql                 /docker-entrypoint-initdb.d/01h-settings.sql
+COPY supabase/migrations/0010_user_roles.sql              /docker-entrypoint-initdb.d/01i-roles.sql
+COPY supabase/migrations/0011_disabled_resources.sql       /docker-entrypoint-initdb.d/01j-disabled.sql
+COPY supabase/migrations/0012_archive_clients.sql          /docker-entrypoint-initdb.d/01k-archive.sql
+COPY supabase/migrations/0013_cancel_sync.sql              /docker-entrypoint-initdb.d/01l-cancel.sql
+COPY docker/postgres/02-grants.sql                         /docker-entrypoint-initdb.d/02-grants.sql
