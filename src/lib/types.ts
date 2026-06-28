@@ -1,0 +1,36 @@
+// Tipos de domínio.
+
+export type ClientRow = {
+  id: string;
+  slug: string;
+  name: string;
+  base_url: string;
+  company_id: string | null;
+  active: boolean;
+  sync_interval_minutes: number;
+  lookback_days: number;
+  extra_filters: Record<string, Record<string, unknown>>;
+  last_synced_at: string | null;
+  last_sync_status: string | null;
+  last_sync_error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+// ClientRow + segredo (uso interno do extractor; nunca exposto via API)
+export type ClientSecretRow = ClientRow & { token_encrypted: string };
+
+export type ResourceSyncResult = {
+  resource: string;
+  status: "ok" | "error";
+  records_upserted: number;
+  error?: string;
+};
+
+export type SyncResult = {
+  client_id: string;
+  client_slug: string;
+  status: "ok" | "error" | "scheduled" | "running";
+  resources: ResourceSyncResult[];
+  total_upserted: number;
+};

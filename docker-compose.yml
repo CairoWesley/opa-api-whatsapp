@@ -1,0 +1,132 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# opa-api-whatsapp — stack 100% LOCAL: Supabase (Postgres + PostgREST + Kong +
+# Studio) + a aplicação Next.js. Sem nuvem.
+#
+#   docker compose up -d --build            # sobe db + rest + kong + app
+#   docker compose --profile studio up -d   # inclui o Supabase Studio (UI do banco)
+#
+# Acessos:
+#   App / Admin .......... http://localhost:3000   (token = APP_ADMIN_TOKEN)
+#   Supabase API (Kong) .. http://localhost:8000
+#   Supabase Studio ...... http://localhost:8001   (profile "studio")
+#   Postgres ............. localhost:5432  (user postgres / POSTGRES_PASSWORD) — p/ Power BI
+#
+# Secrets default = os do seu ambiente self-hosted. Troque via .env (veja .env.docker.example).
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  db:
+    image: supabase/postgres:15.1.1.78
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-48debb7e1760c641ce6a250a6173c8cf}
+      JWT_SECRET: ${JWT_SECRET:-4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # init: roles -> migração -> grants (ordem alfabética)
+      - ./docker/postgres/00-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro
+      - ./supabase/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rest:
+    image: postgrest/postgrest:v12.2.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Conecta como superuser e faz SET ROLE conforme o JWT (service_role/anon).
+      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD:-48debb7e1760c641ce6a250a6173c8cf}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+
+  kong:
+    image: kong:2.8.1
+    restart: unless-stopped
+    depends_on:
+      - rest
+    ports:
+      - "8000:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+    volumes:
+      - ./docker/kong/kong.yml:/home/kong/kong.yml:ro
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      # App fala com o Supabase local via Kong.
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M}
+      APP_ADMIN_TOKEN: ${APP_ADMIN_TOKEN:-local-admin-token}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      OPA_PAGE_SIZE: ${OPA_PAGE_SIZE:-500}
+      OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-30000}
+      DEFAULT_LOOKBACK_DAYS: ${DEFAULT_LOOKBACK_DAYS:-30}
+      CRON_SECRET: ${CRON_SECRET:-local-admin-token}
+
+  # ── Supabase Studio (opcional): docker compose --profile studio up -d ──────────
+  meta:
+    image: supabase/postgres-meta:v0.84.2
+    profiles: ["studio"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: "8080"
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: "5432"
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-48debb7e1760c641ce6a250a6173c8cf}
+
+  studio:
+    image: supabase/studio:20241014-c083b3b
+    profiles: ["studio"]
+    restart: unless-stopped
+    depends_on:
+      - meta
+      - kong
+    ports:
+      - "8001:3000"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-48debb7e1760c641ce6a250a6173c8cf}
+      DEFAULT_ORGANIZATION_NAME: Local
+      DEFAULT_PROJECT_NAME: opa-api-whatsapp
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: http://localhost:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogImFub24iLAogICJpc3MiOiAic3VwYWJhc2UiLAogICJpYXQiOiAxNzE1MDUwODAwLAogICJleHAiOiAxODcyODE3MjAwCn0.JxiPF6G9sDr6KKS4f8UHS9sCtOUtiD4PK4Wq5BsyRck}
+      SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M}
+      AUTH_JWT_SECRET: ${JWT_SECRET:-4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c}
+
+volumes:
+  db_data:
