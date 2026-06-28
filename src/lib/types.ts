@@ -7,6 +7,7 @@ export type ClientRow = {
   base_url: string;
   company_id: string | null;
   active: boolean;
+  archived: boolean;
   insecure_tls: boolean;
   page_size: number | null;
   timeout_ms: number | null;

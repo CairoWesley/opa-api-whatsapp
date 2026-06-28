@@ -66,12 +66,12 @@ async function syncResource(
       }
       if (batch.length) total += await repo.upsertDocuments(client.id, resource.key, batch);
     }
-    await repo.insertSyncLog(client.id, resource.key, "ok", total, null);
+    await repo.insertSyncLog(client.id, resource.key, "ok", total, null).catch(() => {});
     return { resource: resource.key, status: "ok", records_upserted: total };
   } catch (err) {
     const msg = err instanceof OpaError ? err.message : String(err);
     const permission_error = err instanceof OpaError && (err.statusCode === 401 || err.statusCode === 403);
-    await repo.insertSyncLog(client.id, resource.key, "error", total, msg);
+    await repo.insertSyncLog(client.id, resource.key, "error", total, msg).catch(() => {});
     return { resource: resource.key, status: "error", records_upserted: total, error: msg, permission_error };
   }
 }
@@ -83,7 +83,9 @@ export async function syncClient(
   forceFull?: boolean,
 ): Promise<SyncResult> {
   const client = await repo.getClientSecret(clientId);
-  if (!client) throw new Error(`Cliente ${clientId} não encontrado`);
+  // Cliente removido/arquivado entre o enfileiramento e a execução → no-op
+  // (não relança erro, p/ o job não ficar em loop de retry).
+  if (!client) return { client_id: clientId, client_slug: "?", status: "error", resources: [], total_upserted: 0 };
 
   const startedAt = new Date().toISOString();
   const requested = resources?.length ? resources : RESOURCE_KEYS;
@@ -92,7 +94,9 @@ export async function syncClient(
   const keys = requested.filter((k) => !skip.has(k));
   // 1º sync (nunca sincronizado) = FULL automático. Override ignora full.
   const full = !override && (forceFull === true || client.last_synced_at == null);
-  await repo.setSyncState(clientId, "running");
+  // "running" + carimba a TENTATIVA (last_synced_at = última vez que tentou,
+  // independente de sucesso).
+  await repo.setSyncState(clientId, "running", null, true);
 
   const token = decryptToken(client.token_encrypted);
   const opa = new OpaClient({
@@ -129,7 +133,8 @@ export async function syncClient(
       .filter((r) => r.error)
       .map((r) => `${r.resource}: ${r.error}`)
       .join("; ") || null;
-  await repo.setSyncState(clientId, status, errSummary, true);
+  // Não re-carimba last_synced_at (já foi no início = tentativa). Só o status.
+  await repo.setSyncState(clientId, status, errSummary, false);
 
   const totalUpserted = results.reduce((a, r) => a + r.records_upserted, 0);
   await repo.insertSyncRun({

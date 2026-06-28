@@ -61,6 +61,7 @@ export function parseClientUpdate(body: any): Record<string, unknown> {
   if (body.base_url !== undefined) patch.base_url = normalizeBaseUrl(body.base_url);
   if (body.company_id !== undefined) patch.company_id = body.company_id ? String(body.company_id) : null;
   if (body.active !== undefined) patch.active = Boolean(body.active);
+  if (body.archived !== undefined) patch.archived = Boolean(body.archived);
   if (body.insecure_tls !== undefined) patch.insecure_tls = Boolean(body.insecure_tls);
   if (body.page_size !== undefined) patch.page_size = numOrNull(body.page_size);
   if (body.timeout_ms !== undefined) patch.timeout_ms = numOrNull(body.timeout_ms);

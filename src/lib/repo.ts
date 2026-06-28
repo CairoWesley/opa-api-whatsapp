@@ -11,7 +11,7 @@ export type DashUser = { id: string; username: string; password_hash: string; ac
 export type DocFilter = { field: string; op: string; value: string };
 
 const CLIENT_COLS =
-  "id, slug, name, base_url, company_id, active, insecure_tls, page_size, timeout_ms, " +
+  "id, slug, name, base_url, company_id, active, archived, insecure_tls, page_size, timeout_ms, " +
   "sync_interval_minutes, lookback_days, blocked_resources, disabled_resources, resource_access, extra_filters, " +
   "last_synced_at, last_sync_status, last_sync_error, created_at, updated_at";
 
@@ -19,9 +19,14 @@ const nowIso = () => new Date().toISOString();
 const jb = (o: unknown) => JSON.stringify(o ?? {});
 
 // ── Clientes ────────────────────────────────────────────────────────────────
-export async function listClients(active?: boolean): Promise<ClientRow[]> {
-  if (active === undefined) return q<ClientRow>(`select ${CLIENT_COLS} from opa_clients order by created_at`);
-  return q<ClientRow>(`select ${CLIENT_COLS} from opa_clients where active = $1 order by created_at`, [active]);
+// Por padrão exclui ARQUIVADOS. includeArchived=true traz todos.
+export async function listClients(active?: boolean, includeArchived = false): Promise<ClientRow[]> {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (!includeArchived) conds.push("archived = false");
+  if (active !== undefined) { params.push(active); conds.push(`active = $${params.length}`); }
+  const where = conds.length ? `where ${conds.join(" and ")}` : "";
+  return q<ClientRow>(`select ${CLIENT_COLS} from opa_clients ${where} order by created_at`, params);
 }
 
 export async function getClient(id: string): Promise<ClientRow | null> {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 type Client = {
-  id: string; slug: string; name: string; base_url: string; company_id: string | null; active: boolean;
+  id: string; slug: string; name: string; base_url: string; company_id: string | null; active: boolean; archived: boolean;
   insecure_tls: boolean; page_size: number | null; timeout_ms: number | null;
   lookback_days: number; sync_interval_minutes: number;
   blocked_resources: string[]; disabled_resources: string[]; resource_access: Record<string, { ok: boolean; code: number; at: string }>;
@@ -92,7 +92,8 @@ export default function AdminPage() {
     return body;
   }, []);
 
-  const loadClients = useCallback(async () => setClients(await api("/clients")), [api]);
+  const [showArchived, setShowArchived] = useState(false);
+  const loadClients = useCallback(async () => setClients(await api(`/clients${showArchived ? "?include_archived=true" : ""}`)), [api, showArchived]);
   const loadResources = useCallback(async () => setResources((await api("/sync/resources")).resources), [api]);
   const loadTokens = useCallback(async () => setTokens((await api("/tokens")).tokens), [api]);
   const loadLogs = useCallback(async (clientId = "") => {
@@ -190,7 +191,8 @@ export default function AdminPage() {
     try { await api(`/clients/${editing.id}`, { method: "PATCH", body: JSON.stringify(patch) }); notify("Configurações salvas"); setEditing(null); loadClients(); }
     catch (e) { notify((e as Error).message, false); }
   };
-  const del = async (id: string, slug: string) => { if (!confirm(`Excluir "${slug}" e TODOS os dados? Irreversível.`)) return; try { await api(`/clients/${id}`, { method: "DELETE" }); notify("Removido"); loadClients(); } catch (e) { notify((e as Error).message, false); } };
+  const archive = async (id: string, slug: string) => { if (!confirm(`Arquivar "${slug}"? Some das listas e para de sincronizar, mas o histórico é mantido.`)) return; try { await api(`/clients/${id}/archive`, { method: "POST" }); notify("Arquivado"); loadClients(); } catch (e) { notify((e as Error).message, false); } };
+  const unarchive = async (id: string) => { try { await api(`/clients/${id}/unarchive`, { method: "POST" }); notify("Desarquivado (inativo)"); loadClients(); } catch (e) { notify((e as Error).message, false); } };
   const syncNow = async (id: string, full = false) => {
     notify(full ? "Full sync enfileirado" : "Sync enfileirado");
     try { await api(`/sync/clients/${id}${full ? "?full=true" : ""}`, { method: "POST" }); setTimeout(loadClients, 1500); setTimeout(loadClients, 5000); } catch (e) { notify((e as Error).message, false); }
@@ -291,7 +293,7 @@ export default function AdminPage() {
         </div>
         <div className="content">
           {view === "dashboard" && <DashboardView {...{ overview, clients, setView, setEditing, revalidate, syncNow, loadOverview }} />}
-          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit }} />}
+          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, archive, unarchive, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit, showArchived, setShowArchived }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "filtros" && <FilterTesterView {...{ resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest }} />}
@@ -425,7 +427,7 @@ function DashboardView(p: any) {
 }
 
 function ClientesView(p: any) {
-  const { form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit } = p;
+  const { form, setForm, clients, syncNow, toggle, archive, unarchive, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit, showArchived, setShowArchived } = p;
   if (editing) return <EditClient client={editing} onCancel={() => setEditing(null)} onSave={saveEdit} />;
   return (
     <>
@@ -445,14 +447,14 @@ function ClientesView(p: any) {
       </section>
 
       <section className="card">
-        <div className="card-head"><h2>Clientes</h2><span className="sp" /><button className="ghost xs" onClick={() => loadClients()}>↻ Atualizar</button></div>
+        <div className="card-head"><h2>Clientes</h2><span className="sp" /><label className="chk" style={{ marginRight: 10 }}><input type="checkbox" checked={showArchived} onChange={(e) => { setShowArchived(e.target.checked); setTimeout(loadClients, 0); }} /><span>mostrar arquivados</span></label><button className="ghost xs" onClick={() => loadClients()}>↻ Atualizar</button></div>
         <div className="tbl-wrap">
           <table>
             <thead><tr><th>Slug</th><th>Nome</th><th>Status</th><th>Último sync</th><th>Ações</th></tr></thead>
             <tbody>
               {clients.map((c: Client) => (
-                <tr key={c.id}>
-                  <td><b>{c.slug}</b>{c.insecure_tls && <span className="muted" title="TLS inseguro"> 🔓</span>}</td>
+                <tr key={c.id} style={c.archived ? { opacity: 0.55 } : undefined}>
+                  <td><b>{c.slug}</b>{c.insecure_tls && <span className="muted" title="TLS inseguro"> 🔓</span>}{c.archived && <span className="pill off" style={{ marginLeft: 6 }}>arquivado</span>}</td>
                   <td>{c.name}</td>
                   <td>
                     <StatusPill status={c.last_sync_status} /> {c.last_sync_status === "error" && <button className="ghost xs" onClick={() => seeErrors(c.id)}>ver erro</button>}
@@ -460,12 +462,18 @@ function ClientesView(p: any) {
                   </td>
                   <td className="muted">{fmt(c.last_synced_at)}</td>
                   <td className="actions">
-                    <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>
-                    <button className="sec xs" onClick={() => syncNow(c.id, true)}>Full</button>
-                    <button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar token</button>
-                    <button className="ghost xs" onClick={() => setEditing(c)}>Editar</button>
-                    {c.active ? <button className="warn xs" onClick={() => toggle(c.id, "deactivate")}>Inativar</button> : <button className="xs" onClick={() => toggle(c.id, "activate")}>Ativar</button>}
-                    <button className="danger xs" onClick={() => del(c.id, c.slug)}>Excluir</button>
+                    {c.archived ? (
+                      <button className="xs" onClick={() => unarchive(c.id)}>Desarquivar</button>
+                    ) : (
+                      <>
+                        <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>
+                        <button className="sec xs" onClick={() => syncNow(c.id, true)}>Full</button>
+                        <button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar token</button>
+                        <button className="ghost xs" onClick={() => setEditing(c)}>Editar</button>
+                        {c.active ? <button className="warn xs" onClick={() => toggle(c.id, "deactivate")}>Inativar</button> : <button className="xs" onClick={() => toggle(c.id, "activate")}>Ativar</button>}
+                        <button className="danger xs" onClick={() => archive(c.id, c.slug)}>Arquivar</button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -658,7 +666,10 @@ function FilterTesterView(p: any) {
 
         {ftRows.map((r: any, i: number) => (
           <div key={i} className="row" style={{ marginBottom: 8, gridTemplateColumns: "1fr 130px 1fr 40px" }}>
-            <input placeholder="campo (ex: status ou contato.nome)" value={r.field} onChange={(e) => setRow(i, "field", e.target.value)} />
+            <select value={r.field} onChange={(e) => setRow(i, "field", e.target.value)}>
+              <option value="">(campo)</option>
+              {[...cols, "external_id", "synced_at"].map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
             <select value={r.op} onChange={(e) => setRow(i, "op", e.target.value)}>{FT_OPS.map((o) => <option key={o} value={o}>{o}</option>)}</select>
             <input placeholder="valor" value={r.value} onChange={(e) => setRow(i, "value", e.target.value)} />
             <button className="ghost xs" onClick={() => setFtRows(ftRows.filter((_: any, j: number) => j !== i))}>✕</button>
@@ -687,6 +698,16 @@ function FilterTesterView(p: any) {
   );
 }
 
+const QUERY_PRESETS: { label: string; sql: string }[] = [
+  { label: "Clientes & status", sql: "select slug, name, active, archived, last_sync_status, last_synced_at\nfrom opa_clients order by created_at" },
+  { label: "Atendimentos por status", sql: "select status, count(*) as total\nfrom opa_atendimentos group by status order by total desc" },
+  { label: "Registros por cliente", sql: "select c.slug, count(*) as atendimentos\nfrom opa_atendimentos a join opa_clients c on c.id = a.client_id\ngroup by c.slug order by atendimentos desc" },
+  { label: "Syncs recentes", sql: "select client_id, status, is_full, total_upserted, started_at, finished_at\nfrom sync_runs order by started_at desc limit 20" },
+  { label: "Erros de sync recentes", sql: "select client_id, resource, error, started_at\nfrom opa_sync_logs where status = 'error' order by started_at desc limit 20" },
+  { label: "Top departamentos", sql: "select departamento, count(*) as total\nfrom opa_atendimentos\nwhere departamento is not null\ngroup by departamento order by total desc limit 10" },
+  { label: "Tempo médio de sync por cliente", sql: "select c.slug, round(avg(extract(epoch from (r.finished_at - r.started_at)) * 1000)) as ms\nfrom sync_runs r join opa_clients c on c.id = r.client_id\nwhere r.finished_at is not null group by c.slug order by ms desc" },
+];
+
 function QueryView(p: any) {
   const { qSql, setQSql, qResult, qRunning, runQuery } = p;
   return (
@@ -694,6 +715,9 @@ function QueryView(p: any) {
       <section className="card">
         <div className="card-head"><h2>Query SQL (somente leitura)</h2></div>
         <p className="card-desc">Rode <b>SELECT/WITH</b> no banco. Transação read-only + timeout — escrita/DDL é bloqueada. Tabelas: <code>opa_clients</code>, <code>opa_atendimentos</code>, <code>opa_contatos</code>, <code>opa_mensagens</code>, <code>sync_runs</code>, <code>opa_sync_logs</code>…</p>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {QUERY_PRESETS.map((q) => <button key={q.label} className="ghost xs" onClick={() => setQSql(q.sql)}>{q.label}</button>)}
+        </div>
         <textarea value={qSql} onChange={(e) => setQSql(e.target.value)} rows={5}
           style={{ width: "100%", fontFamily: "var(--f-mono)", fontSize: 13, padding: 12, background: "var(--bg)", color: "var(--txt)", border: "1px solid var(--line)", borderRadius: "var(--r2)" }} />
         <div style={{ marginTop: 12 }}><button onClick={runQuery} disabled={qRunning}>{qRunning ? "Rodando…" : "Rodar query"}</button></div>

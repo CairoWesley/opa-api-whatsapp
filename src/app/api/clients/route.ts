@@ -11,7 +11,8 @@ export const GET = withAdmin(async (req) => {
   const url = new URL(req.url);
   const activeParam = url.searchParams.get("active");
   const active = activeParam === null ? undefined : activeParam === "true";
-  const rows = await repo.listClients(active);
+  const includeArchived = url.searchParams.get("include_archived") === "true";
+  const rows = await repo.listClients(active, includeArchived);
   return json(rows);
 });
 
