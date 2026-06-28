@@ -20,6 +20,8 @@ export const config = {
   // Sessão do dashboard (login usuário/senha). Secret cai p/ a chave de cripto.
   sessionSecret: () => process.env.SESSION_SECRET || required("APP_ENCRYPTION_KEY"),
   sessionTtlHours: () => Number(process.env.SESSION_TTL_HOURS ?? 12),
+  // Quantos recursos de um mesmo job rodam em paralelo (threads lógicas).
+  resourceConcurrency: () => Number(process.env.WORKER_RESOURCE_CONCURRENCY ?? 3),
   // Seed do 1º usuário admin do dashboard (cria se a tabela estiver vazia).
   defaultDashUser: () => process.env.DASHBOARD_DEFAULT_USER || "",
   defaultDashPassword: () => process.env.DASHBOARD_DEFAULT_PASSWORD || "",

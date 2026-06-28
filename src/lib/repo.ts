@@ -207,6 +207,18 @@ export async function ensureSeedUser(): Promise<void> {
 }
 
 // ── Logs ────────────────────────────────────────────────────────────────────
+export async function listSyncLogs(clientId: string | null, limit = 100): Promise<unknown[]> {
+  let q = supabaseAdmin()
+    .from("opa_sync_logs")
+    .select("id, client_id, resource, status, records_upserted, error, started_at, finished_at")
+    .order("started_at", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 500));
+  if (clientId) q = q.eq("client_id", clientId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function insertSyncLog(
   clientId: string,
   resource: string,

@@ -10,6 +10,20 @@ import type { ClientSecretRow, ResourceSyncResult, SyncResult } from "./types";
 
 const BATCH = 500;
 
+// Executa fn sobre items com no máx. `n` em paralelo (pool de "threads" lógicas).
+async function mapPool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function runner() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(Math.max(n, 1), items.length) }, runner));
+  return out;
+}
+
 // Monta as PASSADAS de filtro de um recurso.
 //   - override (query custom): 1 passada exatamente com o filtro dado.
 //   - full = true (1º sync ou forçado): 1 passada SEM data → puxa tudo.
@@ -84,14 +98,14 @@ export async function syncClient(
     insecureTls: client.insecure_tls,
   });
 
-  const results: ResourceSyncResult[] = [];
+  let results: ResourceSyncResult[] = [];
   let hadError = false;
   try {
-    for (const key of keys) {
-      const res = await syncResource(opa, client, getResource(key), full, override);
-      results.push(res);
-      if (res.status === "error") hadError = true;
-    }
+    // Recursos do job rodam em paralelo (pool configurável).
+    results = await mapPool(keys, config.resourceConcurrency(), (key) =>
+      syncResource(opa, client, getResource(key), full, override),
+    );
+    hadError = results.some((r) => r.status === "error");
   } catch (err) {
     await repo.setSyncState(clientId, "error", String(err), false);
     throw err;

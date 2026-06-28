@@ -31,6 +31,7 @@ services:
       - ./supabase/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ./supabase/migrations/0002_dashboard_users.sql:/docker-entrypoint-initdb.d/01b-users.sql:ro
       - ./supabase/migrations/0004_resource_tables.sql:/docker-entrypoint-initdb.d/01c-resources.sql:ro
+      - ./supabase/migrations/0005_api_tokens.sql:/docker-entrypoint-initdb.d/01d-tokens.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -69,11 +70,13 @@ services:
     volumes:
       - ./docker/kong/kong.yml:/home/kong/kong.yml:ro
 
-  # ── Redis (fila BullMQ) ───────────────────────────────────────────────────────
+  # ── Redis (fila BullMQ) — com senha ───────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-localredispass}
+    command: sh -c 'redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no'
 
   app:
     build:
@@ -101,7 +104,7 @@ services:
       OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-30000}
       DEFAULT_LOOKBACK_DAYS: ${DEFAULT_LOOKBACK_DAYS:-30}
       CRON_SECRET: ${CRON_SECRET:-local-admin-token}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://:localredispass@redis:6379}
       # Dashboard (login usuário/senha) + sessão por cookie assinado.
       SESSION_SECRET: ${SESSION_SECRET:-troque-este-secret-de-sessao-local}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
@@ -131,8 +134,9 @@ services:
       OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-30000}
       DEFAULT_LOOKBACK_DAYS: ${DEFAULT_LOOKBACK_DAYS:-30}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://:localredispass@redis:6379}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      WORKER_RESOURCE_CONCURRENCY: ${WORKER_RESOURCE_CONCURRENCY:-3}
 
   # ── Supabase Studio (opcional): docker compose --profile studio up -d ──────────
   meta:

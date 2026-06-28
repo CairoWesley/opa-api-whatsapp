@@ -5,12 +5,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { config } from "./config";
 import { readSessionCookie, verifySession } from "./session";
+import { verifyApiToken } from "./api-tokens";
 
 export class UnauthorizedError extends Error {}
 
 export type Principal =
   | { kind: "token" }
-  | { kind: "session"; uid: string; username: string };
+  | { kind: "session"; uid: string; username: string }
+  | { kind: "apitoken"; tokenId: string; name: string; scopes: string[] };
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -25,6 +27,55 @@ function bearerToken(req: Request): string | null {
   if (auth?.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
   if (xToken) return xToken.trim();
   return null;
+}
+
+// Basic auth: Authorization: Basic base64(user:pass). O token pode vir como
+// usuário OU senha (ex: -u token: ou -u qualquer:token).
+function basicCreds(req: Request): { user: string; pass: string } | null {
+  const auth = req.headers.get("authorization");
+  if (!auth?.toLowerCase().startsWith("basic ")) return null;
+  try {
+    const dec = Buffer.from(auth.slice(6).trim(), "base64").toString("utf8");
+    const i = dec.indexOf(":");
+    if (i < 0) return { user: dec, pass: "" };
+    return { user: dec.slice(0, i), pass: dec.slice(i + 1) };
+  } catch {
+    return null;
+  }
+}
+
+// Candidatos de token: Bearer + (usuário e senha do Basic).
+function tokenCandidates(req: Request): string[] {
+  const out: string[] = [];
+  const b = bearerToken(req);
+  if (b) out.push(b);
+  const basic = basicCreds(req);
+  if (basic) {
+    if (basic.pass) out.push(basic.pass);
+    if (basic.user) out.push(basic.user);
+  }
+  return out;
+}
+
+// Auth da API do CLIENTE: aceita token admin, sessão, token de API (tabela)
+// — via Bearer OU Basic. Async (consulta o hash do token no banco).
+export async function requireApiAuth(req: Request): Promise<Principal> {
+  const candidates = tokenCandidates(req);
+
+  // 1. Token admin (acesso total).
+  for (const c of candidates) if (safeEqual(c, config.adminToken())) return { kind: "token" };
+
+  // 2. Sessão do dashboard.
+  const sess = verifySession(readSessionCookie(req));
+  if (sess) return { kind: "session", uid: sess.uid, username: sess.username };
+
+  // 3. Token de API (tabela api_tokens).
+  for (const c of candidates) {
+    const t = await verifyApiToken(c);
+    if (t) return { kind: "apitoken", tokenId: t.id, name: t.name, scopes: t.scopes };
+  }
+
+  throw new UnauthorizedError("Não autenticado. Use Bearer/Basic com um token válido.");
 }
 
 // Valida a request por token de API OU por cookie de sessão. Retorna quem é.

@@ -1,0 +1,33 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Worker AVULSO — rode em OUTRO servidor para escalar a extração.
+# Aponta para o Redis (com senha) e o Supabase já existentes.
+#
+#   # servidor A (app + redis + db):
+#   docker compose up -d
+#
+#   # servidor B, C... (só workers, apontando p/ o Redis do servidor A):
+#   REDIS_URL=redis://:senha@HOST_A:6379 \
+#   SUPABASE_URL=http://HOST_A:8000 \
+#   SUPABASE_SERVICE_KEY=... APP_ENCRYPTION_KEY=... \
+#   docker compose -f docker-compose.worker.yml up -d --build --scale worker=4
+#
+# Garantias do BullMQ: um job é travado e processado por UM worker só — mesmo
+# com vários workers/servidores, o mesmo job nunca roda em dois ao mesmo tempo.
+# ──────────────────────────────────────────────────────────────────────────────
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    restart: unless-stopped
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:?defina SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:?defina SUPABASE_SERVICE_KEY}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?defina APP_ENCRYPTION_KEY}
+      REDIS_URL: ${REDIS_URL:?defina REDIS_URL (com senha)}
+      OPA_PAGE_SIZE: ${OPA_PAGE_SIZE:-500}
+      OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-30000}
+      DEFAULT_LOOKBACK_DAYS: ${DEFAULT_LOOKBACK_DAYS:-30}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      WORKER_RESOURCE_CONCURRENCY: ${WORKER_RESOURCE_CONCURRENCY:-3}
