@@ -36,6 +36,7 @@ services:
       - ./supabase/migrations/0007_resource_access.sql:/docker-entrypoint-initdb.d/01f-access.sql:ro
       - ./supabase/migrations/0008_sync_runs.sql:/docker-entrypoint-initdb.d/01g-runs.sql:ro
       - ./supabase/migrations/0009_settings.sql:/docker-entrypoint-initdb.d/01h-settings.sql:ro
+      - ./supabase/migrations/0010_user_roles.sql:/docker-entrypoint-initdb.d/01i-roles.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -143,7 +144,7 @@ services:
       DEFAULT_LOOKBACK_DAYS: ${DEFAULT_LOOKBACK_DAYS:-30}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       REDIS_URL: ${REDIS_URL:-redis://:localredispass@redis:6379}
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-8}
       WORKER_RESOURCE_CONCURRENCY: ${WORKER_RESOURCE_CONCURRENCY:-3}
       # Agendador interno: re-sync automático de ativos + revalidação de token
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}

@@ -24,9 +24,9 @@ export async function POST(req: Request) {
   if (!user || !ok) return error("Usuário ou senha inválidos.", 401);
 
   await repo.touchUserLogin(user.id);
-  const { token, maxAge } = signSession(user.id, user.username);
+  const { token, maxAge } = signSession(user.id, user.username, user.role);
 
-  const res = NextResponse.json({ user: { username: user.username } });
+  const res = NextResponse.json({ user: { username: user.username, role: user.role } });
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",

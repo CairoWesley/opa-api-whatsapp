@@ -1,4 +1,4 @@
-import { withAdmin, json } from "@/lib/http";
+import { withAdmin, withAdminRole, json } from "@/lib/http";
 import * as repo from "@/lib/repo";
 
 export const runtime = "nodejs";
@@ -16,8 +16,8 @@ export const GET = withAdmin(async () => {
   });
 });
 
-// PUT /api/settings { auto_resync_enabled, auto_revalidate_enabled, revalidate_hours }
-export const PUT = withAdmin(async (req) => {
+// PUT /api/settings — APENAS ADMIN (gestor não altera config de sync).
+export const PUT = withAdminRole(async (req) => {
   const body = await req.json().catch(() => ({}));
   for (const [k, v] of Object.entries(body || {})) {
     if (ALLOWED.has(k)) await repo.setSetting(k, k === "revalidate_hours" ? Number(v) : Boolean(v));

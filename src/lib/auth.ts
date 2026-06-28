@@ -11,8 +11,10 @@ export class UnauthorizedError extends Error {}
 
 export type Principal =
   | { kind: "token" }
-  | { kind: "session"; uid: string; username: string }
+  | { kind: "session"; uid: string; username: string; role: string }
   | { kind: "apitoken"; tokenId: string; name: string; scopes: string[]; clientId: string | null };
+
+export class ForbiddenError extends Error {}
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -67,7 +69,7 @@ export async function requireApiAuth(req: Request): Promise<Principal> {
 
   // 2. Sessão do dashboard.
   const sess = verifySession(readSessionCookie(req));
-  if (sess) return { kind: "session", uid: sess.uid, username: sess.username };
+  if (sess) return { kind: "session", uid: sess.uid, username: sess.username, role: sess.role };
 
   // 3. Token de API (tabela api_tokens).
   for (const c of candidates) {
@@ -86,7 +88,7 @@ export function requireAuth(req: Request): Principal {
 
   // 2. Sessão do dashboard (cookie assinado).
   const sess = verifySession(readSessionCookie(req));
-  if (sess) return { kind: "session", uid: sess.uid, username: sess.username };
+  if (sess) return { kind: "session", uid: sess.uid, username: sess.username, role: sess.role };
 
   throw new UnauthorizedError("Não autenticado. Faça login ou use um token válido.");
 }
@@ -94,4 +96,13 @@ export function requireAuth(req: Request): Principal {
 // Compat: rotas antigas chamavam requireAdmin(req). Mantém o nome.
 export function requireAdmin(req: Request): void {
   requireAuth(req);
+}
+
+// Exige papel ADMIN: token de API (admin) OU sessão com role=admin.
+// Sessão de gestor é rejeitada (403).
+export function requireAdminRole(req: Request): void {
+  const p = requireAuth(req);
+  if (p.kind === "session" && p.role !== "admin") {
+    throw new ForbiddenError("Apenas administradores podem fazer isso.");
+  }
 }

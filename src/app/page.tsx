@@ -12,9 +12,10 @@ type Client = {
 type ResourceMeta = { key: string; filters: string[] };
 type ApiToken = { id: string; name: string; client_id: string | null; token_prefix: string; scopes: string[]; active: boolean; created_at: string; last_used_at: string | null };
 type SyncLog = { id: string; client_id: string; resource: string; status: string; records_upserted: number; error: string | null; started_at: string; finished_at: string | null };
-type View = "dashboard" | "clientes" | "dados" | "tokens" | "historico" | "config" | "docs";
+type View = "dashboard" | "clientes" | "dados" | "filtros" | "query" | "tokens" | "historico" | "config" | "usuarios" | "docs";
 
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleString("pt-BR") : "—");
+const fmtDur = (ms: number | null) => (ms == null ? "—" : ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60000).toFixed(1)}min`);
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
@@ -26,6 +27,7 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [me, setMe] = useState("");
+  const [role, setRole] = useState("admin");
   const [clients, setClients] = useState<Client[]>([]);
   const [resources, setResources] = useState<ResourceMeta[]>([]);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -65,6 +67,21 @@ export default function AdminPage() {
   // configurações
   const [settings, setSettings] = useState<any>(null);
 
+  // query SQL
+  const [qSql, setQSql] = useState("select slug, name, last_sync_status, last_synced_at from opa_clients order by created_at limit 20");
+  const [qResult, setQResult] = useState<any>(null);
+  const [qRunning, setQRunning] = useState(false);
+
+  // testar filtros
+  const [ftRes, setFtRes] = useState("atendimentos");
+  const [ftClient, setFtClient] = useState("");
+  const [ftRows, setFtRows] = useState<{ field: string; op: string; value: string }[]>([{ field: "status", op: "eq", value: "aberto" }]);
+  const [ftOut, setFtOut] = useState<any>(null);
+
+  // usuários
+  const [users, setUsers] = useState<any[]>([]);
+  const [nu, setNu] = useState({ username: "", password: "", role: "gestor" });
+
   const notify = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); };
 
   const api = useCallback(async (path: string, opts: RequestInit = {}) => {
@@ -84,6 +101,27 @@ export default function AdminPage() {
   }, [api]);
   const loadOverview = useCallback(async () => setOverview(await api("/stats/overview")), [api]);
   const loadSettings = useCallback(async () => setSettings(await api("/settings")), [api]);
+  const loadUsers = useCallback(async () => setUsers((await api("/users")).users), [api]);
+  const runQuery = async () => {
+    setQRunning(true);
+    try { setQResult(await api("/query", { method: "POST", body: JSON.stringify({ sql: qSql }) })); }
+    catch (e) { setQResult(null); notify((e as Error).message, false); }
+    finally { setQRunning(false); }
+  };
+  const runFilterTest = async () => {
+    const qs = new URLSearchParams({ limit: "20" });
+    if (ftClient) qs.set("client_id", ftClient);
+    ftRows.filter((r) => r.field && r.value).forEach((r) => qs.append("filter", `${r.field}:${r.op}:${r.value}`));
+    const url = `/api/data/${ftRes}?${qs}`;
+    try { const r = await api(`/data/${ftRes}?${qs}`); setFtOut({ url, total: r.pagination.total, returned: r.pagination.returned, data: r.data }); }
+    catch (e) { setFtOut({ url, error: (e as Error).message }); }
+  };
+  const createUserFn = async () => {
+    if (!nu.username || nu.password.length < 6) return notify("Usuário e senha (≥6)", false);
+    try { await api("/users", { method: "POST", body: JSON.stringify(nu) }); notify("Usuário criado"); setNu({ username: "", password: "", role: "gestor" }); loadUsers(); }
+    catch (e) { notify((e as Error).message, false); }
+  };
+  const delUser = async (id: string) => { if (!confirm("Remover usuário?")) return; try { await api(`/users/${id}`, { method: "DELETE" }); loadUsers(); } catch (e) { notify((e as Error).message, false); } };
   const saveSettings = async (patch: any) => {
     try { setSettings(await api("/settings", { method: "PUT", body: JSON.stringify(patch) })); notify("Configurações salvas"); }
     catch (e) { notify((e as Error).message, false); }
@@ -95,7 +133,7 @@ export default function AdminPage() {
   }, [api]);
 
   useEffect(() => {
-    fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.authenticated) { setAuthed(true); setMe(d.username || "API"); } }).finally(() => setBooting(false));
+    fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.authenticated) { setAuthed(true); setMe(d.username || "API"); setRole(d.role || "admin"); } }).finally(() => setBooting(false));
   }, []);
 
   // Restaura o estado do painel (onde você estava) após F5.
@@ -126,6 +164,7 @@ export default function AdminPage() {
   useEffect(() => { if (authed && view === "tokens") loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
   useEffect(() => { if (authed && view === "dashboard") { loadTokens().catch(() => {}); loadOverview().catch((e) => notify(e.message, false)); } }, [authed, view, loadTokens, loadOverview]);
   useEffect(() => { if (authed && view === "config") loadSettings().catch((e) => notify(e.message, false)); }, [authed, view, loadSettings]);
+  useEffect(() => { if (authed && view === "usuarios") loadUsers().catch((e) => notify(e.message, false)); }, [authed, view, loadUsers]);
   useEffect(() => { if (authed && view === "historico") loadLogs(logClient).catch((e) => notify(e.message, false)); }, [authed, view, logClient, loadLogs]);
   useEffect(() => { if (authed && view === "docs" && docList.length === 0) loadDocList().then((d) => d[0] && openDoc(d[0].slug)).catch(() => {}); }, [authed, view, docList.length, loadDocList, openDoc]);
 
@@ -136,7 +175,7 @@ export default function AdminPage() {
       const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: username.trim(), password }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || "Falha no login");
-      setMe(body.user?.username || username.trim()); setPassword(""); setAuthed(true);
+      setMe(body.user?.username || username.trim()); setRole(body.user?.role || "admin"); setPassword(""); setAuthed(true);
     } catch (e) { notify((e as Error).message, false); } finally { setSigningIn(false); }
   };
   const logout = async () => { await fetch("/api/auth/logout", { method: "POST" }).catch(() => {}); setAuthed(false); setUsername(""); setPassword(""); setMe(""); };
@@ -203,23 +242,29 @@ export default function AdminPage() {
     );
   }
 
+  const isAdmin = role === "admin";
   const NAV: { v: View; ico: string; label: string }[] = [
     { v: "dashboard", ico: "📊", label: "Dashboard" },
     { v: "clientes", ico: "🏢", label: "Clientes" },
     { v: "dados", ico: "🔎", label: "Explorar dados" },
+    { v: "filtros", ico: "🧪", label: "Testar filtros" },
+    { v: "query", ico: "📐", label: "Query SQL" },
     { v: "tokens", ico: "🔑", label: "Tokens de API" },
     { v: "historico", ico: "🕑", label: "Histórico de sync" },
-    { v: "config", ico: "⚙️", label: "Configurações" },
+    ...(isAdmin ? [{ v: "config" as View, ico: "⚙️", label: "Configurações" }, { v: "usuarios" as View, ico: "👤", label: "Usuários" }] : []),
     { v: "docs", ico: "📚", label: "Documentação" },
   ];
-  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", tokens: "Tokens de API", historico: "Histórico de sincronização", config: "Configurações", docs: "Documentação" };
+  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", filtros: "Testar filtros", query: "Query SQL", tokens: "Tokens de API", historico: "Histórico de sincronização", config: "Configurações", usuarios: "Usuários", docs: "Documentação" };
   const subs: Record<View, string> = {
     dashboard: "Visão geral por cliente — status, tokens e rotas acessíveis",
     clientes: "Tenants OPA Suite — criar, editar, sincronizar",
     dados: "Leitura paginada e filtrável dos dados extraídos",
+    filtros: "Monte e teste filtros visualmente — veja como funciona",
+    query: "Rode SELECTs no banco (somente leitura)",
     tokens: "Tokens por cliente para acesso à API",
     historico: "Status e motivos de erro por recurso",
     config: "Agendador — re-sync automático e revalidação de token",
+    usuarios: "Gerenciar usuários do painel (admin/gestor)",
     docs: "Documentação do projeto e da API",
   };
 
@@ -249,8 +294,11 @@ export default function AdminPage() {
           {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
+          {view === "filtros" && <FilterTesterView {...{ resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest }} />}
+          {view === "query" && <QueryView {...{ qSql, setQSql, qResult, qRunning, runQuery }} />}
           {view === "historico" && <HistoricoView {...{ logs, clients, logClient, setLogClient, loadLogs }} />}
           {view === "config" && <ConfigView {...{ settings, saveSettings }} />}
+          {view === "usuarios" && <UsersView {...{ users, nu, setNu, createUserFn, delUser, loadUsers }} />}
           {view === "docs" && <DocsView {...{ docList, docSlug, docHtml, docLoading, openDoc }} />}
         </div>
       </div>
@@ -279,6 +327,7 @@ function DashboardView(p: any) {
         <Stat label="Syncs (total)" value={o.syncs.total} />
         <Stat label={`Syncs em ${o.month.label}`} value={o.syncs.this_month} />
         <Stat label="Registros (total)" value={Number(o.records.total).toLocaleString("pt-BR")} />
+        <Stat label="Tempo médio sync" value={fmtDur(o.syncs.avg_ms)} />
         <Stat label="Tokens ativos" value={o.tokens.active} />
         <Stat label="Com erro" value={o.clients.with_errors} />
         <Stat label="Com rota bloqueada" value={o.clients.blocked} />
@@ -320,7 +369,7 @@ function DashboardView(p: any) {
         <div className="card-head"><h2>Por cliente</h2></div>
         <div className="tbl-wrap">
           <table>
-            <thead><tr><th>Cliente</th><th>Status</th><th>Syncs</th><th>No mês</th><th>Registros</th><th>Sucesso</th><th>Bloq.</th><th>Tokens</th><th>Último sync</th><th></th></tr></thead>
+            <thead><tr><th>Cliente</th><th>Status</th><th>Syncs</th><th>No mês</th><th>Registros</th><th>Sucesso</th><th>Tempo méd.</th><th>Bloq.</th><th>Tokens</th><th>Último sync</th><th></th></tr></thead>
             <tbody>
               {o.per_client.map((c: any) => (
                 <tr key={c.id}>
@@ -329,7 +378,8 @@ function DashboardView(p: any) {
                   <td>{c.sync_count}</td>
                   <td>{c.syncs_this_month}</td>
                   <td className="mono">{Number(c.total_upserted).toLocaleString("pt-BR")}</td>
-                  <td>{c.ok_rate === null ? <span className="muted">—</span> : <span className={c.ok_rate >= 80 ? "" : ""} style={{ color: c.ok_rate >= 80 ? "var(--ok)" : c.ok_rate >= 50 ? "var(--warn)" : "var(--danger)" }}>{c.ok_rate}%</span>}</td>
+                  <td>{c.ok_rate === null ? <span className="muted">—</span> : <span style={{ color: c.ok_rate >= 80 ? "var(--ok)" : c.ok_rate >= 50 ? "var(--warn)" : "var(--danger)" }}>{c.ok_rate}%</span>}</td>
+                  <td className="muted">{fmtDur(c.avg_ms)}</td>
                   <td>{c.blocked > 0 ? <span className="pill off">{c.blocked}</span> : "—"}</td>
                   <td>{c.tokens}</td>
                   <td className="muted">{fmt(c.last_synced_at)}</td>
@@ -566,6 +616,129 @@ function HistoricoView(p: any) {
         </table>
       </div>
     </section>
+  );
+}
+
+const TYPED_COLS: Record<string, string[]> = {
+  atendimentos: ["protocolo", "status", "departamento", "canal", "contato_id", "avaliacao", "aberto_em", "encerrado_em"],
+  contatos: ["nome", "telefone", "email"], mensagens: ["atendimento_id", "tipo", "conteudo", "enviado_em"],
+  clientes: ["nome", "fantasia", "cpf_cnpj", "status"], usuarios: ["nome", "status", "tipo"], canais: ["nome", "status", "canal"],
+  etiquetas: ["nome"], departamentos: ["nome"], motivos: ["motivo"], periodos: ["nome", "ativo"], templates: ["atalho", "tipo_mensagem"],
+};
+const FT_OPS = ["eq", "neq", "like", "ilike", "gt", "gte", "lt", "lte"];
+
+function FilterTesterView(p: any) {
+  const { resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest } = p;
+  const cols = TYPED_COLS[ftRes] || [];
+  const setRow = (i: number, k: string, v: string) => setFtRows(ftRows.map((r: any, j: number) => (j === i ? { ...r, [k]: v } : r)));
+  return (
+    <>
+      <section className="card">
+        <div className="card-head"><h2>Testar filtros</h2></div>
+        <p className="card-desc">Monte filtros e veja a URL gerada + os resultados. Campo pode ser uma <b>coluna tipada</b>, um <b>campo do JSON</b> (ex: <code>prioridade</code>) ou <b>aninhado</b> (ex: <code>contato.nome</code>).</p>
+        <div className="row">
+          <div><label>Recurso</label><select value={ftRes} onChange={(e) => setFtRes(e.target.value)}>{resources.map((r: ResourceMeta) => <option key={r.key} value={r.key}>{r.key}</option>)}</select></div>
+          <div><label>Cliente</label><select value={ftClient} onChange={(e) => setFtClient(e.target.value)}><option value="">(todos)</option>{clients.map((c: Client) => <option key={c.id} value={c.id}>{c.slug}</option>)}</select></div>
+        </div>
+        <div className="muted" style={{ margin: "12px 0 6px" }}>Colunas tipadas de <b>{ftRes}</b>: {cols.length ? cols.map((c) => <code key={c} style={{ marginRight: 6 }}>{c}</code>) : "—"} <span style={{ marginLeft: 6 }}>+ <code>external_id</code>, <code>synced_at</code>, qualquer campo do <code>raw</code></span></div>
+
+        {ftRows.map((r: any, i: number) => (
+          <div key={i} className="row" style={{ marginBottom: 8, gridTemplateColumns: "1fr 130px 1fr 40px" }}>
+            <input placeholder="campo (ex: status ou contato.nome)" value={r.field} onChange={(e) => setRow(i, "field", e.target.value)} />
+            <select value={r.op} onChange={(e) => setRow(i, "op", e.target.value)}>{FT_OPS.map((o) => <option key={o} value={o}>{o}</option>)}</select>
+            <input placeholder="valor" value={r.value} onChange={(e) => setRow(i, "value", e.target.value)} />
+            <button className="ghost xs" onClick={() => setFtRows(ftRows.filter((_: any, j: number) => j !== i))}>✕</button>
+          </div>
+        ))}
+        <div className="actions" style={{ marginTop: 6 }}>
+          <button className="ghost xs" onClick={() => setFtRows([...ftRows, { field: "", op: "eq", value: "" }])}>+ filtro</button>
+          <button className="sec" onClick={runFilterTest}>Testar</button>
+        </div>
+      </section>
+
+      {ftOut && (
+        <section className="card">
+          <div className="card-head"><h2>Resultado</h2></div>
+          <div className="muted" style={{ marginBottom: 8 }}>URL:</div>
+          <pre style={{ maxHeight: 80 }}>{ftOut.url}</pre>
+          {ftOut.error ? <p style={{ color: "var(--danger)" }}>{ftOut.error}</p> : (
+            <>
+              <p className="muted">{ftOut.returned} de {ftOut.total} registro(s)</p>
+              <pre>{JSON.stringify(ftOut.data, null, 2)}</pre>
+            </>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
+function QueryView(p: any) {
+  const { qSql, setQSql, qResult, qRunning, runQuery } = p;
+  return (
+    <>
+      <section className="card">
+        <div className="card-head"><h2>Query SQL (somente leitura)</h2></div>
+        <p className="card-desc">Rode <b>SELECT/WITH</b> no banco. Transação read-only + timeout — escrita/DDL é bloqueada. Tabelas: <code>opa_clients</code>, <code>opa_atendimentos</code>, <code>opa_contatos</code>, <code>opa_mensagens</code>, <code>sync_runs</code>, <code>opa_sync_logs</code>…</p>
+        <textarea value={qSql} onChange={(e) => setQSql(e.target.value)} rows={5}
+          style={{ width: "100%", fontFamily: "var(--f-mono)", fontSize: 13, padding: 12, background: "var(--bg)", color: "var(--txt)", border: "1px solid var(--line)", borderRadius: "var(--r2)" }} />
+        <div style={{ marginTop: 12 }}><button onClick={runQuery} disabled={qRunning}>{qRunning ? "Rodando…" : "Rodar query"}</button></div>
+      </section>
+      {qResult && (
+        <section className="card">
+          <div className="card-head"><h2>Resultado</h2><span className="sp" /><span className="muted">{qResult.rowCount} linha(s) · {qResult.ms}ms</span></div>
+          <div className="tbl-wrap">
+            <table>
+              <thead><tr>{qResult.columns.map((c: string) => <th key={c}>{c}</th>)}</tr></thead>
+              <tbody>
+                {qResult.rows.map((r: any, i: number) => (
+                  <tr key={i}>{qResult.columns.map((c: string) => <td key={c} className="mono" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{typeof r[c] === "object" ? JSON.stringify(r[c]) : String(r[c] ?? "")}</td>)}</tr>
+                ))}
+                {qResult.rows.length === 0 && <tr><td colSpan={qResult.columns.length} className="empty">0 linhas.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+function UsersView(p: any) {
+  const { users, nu, setNu, createUserFn, delUser, loadUsers } = p;
+  return (
+    <>
+      <section className="card" style={{ maxWidth: 620 }}>
+        <div className="card-head"><h2>Novo usuário</h2></div>
+        <p className="card-desc"><b>admin</b>: tudo. <b>gestor</b>: tudo exceto config dos syncs e gestão de usuários.</p>
+        <div className="row">
+          <Field label="Usuário" value={nu.username} onChange={(v: string) => setNu({ ...nu, username: v })} />
+          <Field label="Senha (≥6)" type="password" value={nu.password} onChange={(v: string) => setNu({ ...nu, password: v })} />
+          <div><label>Papel</label><select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}><option value="gestor">gestor</option><option value="admin">admin</option></select></div>
+        </div>
+        <div style={{ marginTop: 16 }}><button onClick={createUserFn}>Criar usuário</button></div>
+      </section>
+      <section className="card">
+        <div className="card-head"><h2>Usuários</h2><span className="sp" /><button className="ghost xs" onClick={() => loadUsers()}>↻</button></div>
+        <div className="tbl-wrap">
+          <table>
+            <thead><tr><th>Usuário</th><th>Papel</th><th>Criado</th><th>Último login</th><th></th></tr></thead>
+            <tbody>
+              {users.map((u: any) => (
+                <tr key={u.id}>
+                  <td><b>{u.username}</b></td>
+                  <td><span className={`pill ${u.role === "admin" ? "running" : "on"}`}><span className="dot" />{u.role}</span></td>
+                  <td className="muted">{fmt(u.created_at)}</td>
+                  <td className="muted">{fmt(u.last_login_at)}</td>
+                  <td className="actions"><button className="danger xs" onClick={() => delUser(u.id)}>Excluir</button></td>
+                </tr>
+              ))}
+              {users.length === 0 && <tr><td colSpan={5} className="empty">Nenhum usuário.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   );
 }
 

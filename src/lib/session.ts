@@ -29,7 +29,7 @@ export function verifyPassword(password: string, stored: string): boolean {
 }
 
 // ── Cookie de sessão (HMAC-SHA256) ──────────────────────────────────────────
-type SessionPayload = { uid: string; username: string; exp: number };
+type SessionPayload = { uid: string; username: string; role: string; exp: number };
 
 const b64url = (b: Buffer) => b.toString("base64url");
 
@@ -37,11 +37,12 @@ function sign(data: string): string {
   return createHmac("sha256", config.sessionSecret()).update(data).digest("base64url");
 }
 
-export function signSession(uid: string, username: string): { token: string; maxAge: number } {
+export function signSession(uid: string, username: string, role: string): { token: string; maxAge: number } {
   const ttlSec = config.sessionTtlHours() * 3600;
   const payload: SessionPayload = {
     uid,
     username,
+    role,
     exp: Math.floor(Date.now() / 1000) + ttlSec,
   };
   const body = b64url(Buffer.from(JSON.stringify(payload)));

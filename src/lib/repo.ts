@@ -7,7 +7,7 @@ import { RESOURCE_KEYS } from "./resources";
 import type { ClientRow, ClientSecretRow } from "./types";
 import type { OpaDoc } from "./opa-client";
 
-export type DashUser = { id: string; username: string; password_hash: string; active: boolean };
+export type DashUser = { id: string; username: string; password_hash: string; active: boolean; role: string };
 export type DocFilter = { field: string; op: string; value: string };
 
 const CLIENT_COLS =
@@ -147,13 +147,19 @@ export async function queryDocuments(
 
 // ── Usuários do dashboard ───────────────────────────────────────────────────
 export async function getUserByUsername(username: string): Promise<DashUser | null> {
-  return q1<DashUser>(`select id, username, password_hash, active from dashboard_users where username = $1`, [username]);
+  return q1<DashUser>(`select id, username, password_hash, active, role from dashboard_users where username = $1`, [username]);
 }
 export async function countUsers(): Promise<number> {
   return (await q1<{ n: number }>(`select count(*)::int as n from dashboard_users`))?.n ?? 0;
 }
-export async function createUser(username: string, passwordHash: string): Promise<void> {
-  await exec(`insert into dashboard_users (username, password_hash) values ($1,$2)`, [username, passwordHash]);
+export async function createUser(username: string, passwordHash: string, role = "gestor"): Promise<void> {
+  await exec(`insert into dashboard_users (username, password_hash, role) values ($1,$2,$3)`, [username, passwordHash, role]);
+}
+export async function listUsers(): Promise<{ id: string; username: string; role: string; active: boolean; created_at: string; last_login_at: string | null }[]> {
+  return q(`select id, username, role, active, created_at, last_login_at from dashboard_users order by created_at`);
+}
+export async function deleteUser(id: string): Promise<void> {
+  await exec(`delete from dashboard_users where id = $1`, [id]);
 }
 export async function touchUserLogin(id: string): Promise<void> {
   await exec(`update dashboard_users set last_login_at = now() where id = $1`, [id]);
@@ -163,7 +169,7 @@ export async function ensureSeedUser(): Promise<void> {
   const pass = config.defaultDashPassword();
   if (!user || !pass) return;
   if ((await countUsers()) > 0) return;
-  try { await createUser(user, hashPassword(pass)); } catch { /* corrida */ }
+  try { await createUser(user, hashPassword(pass), "admin"); } catch { /* corrida */ }
 }
 
 // ── Sync runs + estatísticas ────────────────────────────────────────────────
@@ -190,6 +196,19 @@ export async function perResourceCounts(): Promise<Record<string, number>> {
   );
   return Object.fromEntries(entries);
 }
+// Tempo médio de execução dos syncs (ms): geral + por cliente.
+export async function syncTimings(): Promise<{ overall_ms: number; by_client: Record<string, number> }> {
+  const overall = (await q1<{ ms: number }>(
+    `select coalesce(avg(extract(epoch from (finished_at - started_at)) * 1000), 0)::int as ms
+     from sync_runs where finished_at is not null`,
+  ))?.ms ?? 0;
+  const rows = await q<{ client_id: string; ms: number }>(
+    `select client_id, avg(extract(epoch from (finished_at - started_at)) * 1000)::int as ms
+     from sync_runs where finished_at is not null group by client_id`,
+  );
+  return { overall_ms: overall, by_client: Object.fromEntries(rows.map((r) => [r.client_id, r.ms])) };
+}
+
 export async function tokenCounts(): Promise<{ total: number; active: number }> {
   const total = (await q1<{ n: number }>(`select count(*)::int as n from api_tokens`))?.n ?? 0;
   const active = (await q1<{ n: number }>(`select count(*)::int as n from api_tokens where active`))?.n ?? 0;

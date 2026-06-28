@@ -31,3 +31,25 @@ export async function exec(sql: string, params?: unknown[]): Promise<number> {
   const r = await pool().query(sql, params as any[]);
   return r.rowCount ?? 0;
 }
+
+// Roda uma query em transação READ ONLY (qualquer escrita falha) + timeout.
+// Para o testador de query do painel. Retorna colunas, linhas e tempo.
+export async function readOnlyQuery(sql: string, limit = 200): Promise<{ columns: string[]; rows: any[]; rowCount: number; ms: number }> {
+  const client = await pool().connect();
+  try {
+    await client.query("begin transaction read only");
+    await client.query("set local statement_timeout = 8000");
+    const t0 = Date.now();
+    const r = await client.query(sql);
+    const ms = Date.now() - t0;
+    await client.query("rollback");
+    const rows = (r.rows as any[]).slice(0, limit);
+    const columns = r.fields?.map((f) => f.name) ?? (rows[0] ? Object.keys(rows[0]) : []);
+    return { columns, rows, rowCount: r.rowCount ?? rows.length, ms };
+  } catch (e) {
+    try { await client.query("rollback"); } catch { /* noop */ }
+    throw e;
+  } finally {
+    client.release();
+  }
+}

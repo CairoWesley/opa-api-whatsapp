@@ -14,7 +14,7 @@ export async function buildOverview() {
   const since = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const monthLabel = `${MONTHS[now.getMonth()]}/${now.getFullYear()}`;
 
-  const [clients, runs, byResource, tokens, queue, tcounts, recent] = await Promise.all([
+  const [clients, runs, byResource, tokens, queue, tcounts, recent, timings] = await Promise.all([
     repo.listClients(),
     repo.allRunsLite(),
     repo.perResourceCounts(),
@@ -22,6 +22,7 @@ export async function buildOverview() {
     queueCounts().catch(() => ({})),
     repo.tokenCounts(),
     repo.listRecentRuns(20),
+    repo.syncTimings(),
   ]);
 
   const thisMonth = runs.filter((r) => r.started_at >= since);
@@ -50,6 +51,7 @@ export async function buildOverview() {
       syncs_this_month: cr.filter((r) => r.started_at >= since).length,
       total_upserted: cr.reduce((a, r) => a + (r.total_upserted || 0), 0),
       ok_rate: cr.length ? Math.round((okc / cr.length) * 100) : null,
+      avg_ms: timings.by_client[c.id] ?? null,
       blocked: (c.blocked_resources ?? []).length,
       tokens: tokensByClient.get(c.id) ?? 0,
     };
@@ -75,6 +77,7 @@ export async function buildOverview() {
       this_month: thisMonth.length,
       ok_this_month: thisMonth.filter((r) => r.status === "ok").length,
       error_this_month: thisMonth.filter((r) => r.status === "error").length,
+      avg_ms: timings.overall_ms,
     },
     records: { total: recordsTotal, by_resource: byResource },
     queue,

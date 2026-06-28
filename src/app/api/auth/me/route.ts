@@ -10,8 +10,8 @@ export async function GET(req: Request) {
     const p = requireAuth(req);
     return json(
       p.kind === "session"
-        ? { authenticated: true, via: "session", username: p.username }
-        : { authenticated: true, via: "token" },
+        ? { authenticated: true, via: "session", username: p.username, role: p.role }
+        : { authenticated: true, via: "token", role: "admin" },
     );
   } catch (e) {
     if (e instanceof UnauthorizedError) return error(e.message, 401);

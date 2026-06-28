@@ -6,7 +6,7 @@ import { syncClient } from "../lib/extractor";
 import { runScheduler } from "../lib/scheduler";
 import { config } from "../lib/config";
 
-const concurrency = Number(process.env.WORKER_CONCURRENCY || 3);
+const concurrency = Number(process.env.WORKER_CONCURRENCY || 8);
 
 const worker = new Worker<SyncJobData>(
   SYNC_QUEUE,
