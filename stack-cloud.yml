@@ -1,8 +1,8 @@
-# Stack p/ Portainer CE (Swarm) via WEB EDITOR — sem bind mounts.
-# Imagens no ghcr (públicas). db já traz as migrations embutidas.
+# Stack p/ Portainer CE (Swarm) via WEB EDITOR — Supabase SELF-HOSTED.
+# Imagens no ghcr (públicas). db = supabase/postgres com as migrations embutidas.
 # App/worker usam Postgres DIRETO (pg) + Redis. Kong/PostgREST não são usados.
-# Troque os secrets (POSTGRES_PASSWORD, APP_ENCRYPTION_KEY, SESSION_SECRET,
-# DASHBOARD_DEFAULT_PASSWORD, APP_ADMIN_TOKEN) em produção.
+# Troque os secrets em produção (POSTGRES_PASSWORD, APP_ENCRYPTION_KEY,
+# SESSION_SECRET, DASHBOARD_DEFAULT_PASSWORD, APP_ADMIN_TOKEN).
 version: "3.8"
 
 services:
