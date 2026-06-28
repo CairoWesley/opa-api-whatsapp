@@ -1,8 +1,7 @@
-# Stack p/ Portainer CE (Swarm) via WEB EDITOR — Supabase SELF-HOSTED.
-# Imagens no ghcr (públicas). db = supabase/postgres com as migrations embutidas.
-# App/worker usam Postgres DIRETO (pg) + Redis. Kong/PostgREST não são usados.
-# Troque os secrets em produção (POSTGRES_PASSWORD, APP_ENCRYPTION_KEY,
-# SESSION_SECRET, DASHBOARD_DEFAULT_PASSWORD, APP_ADMIN_TOKEN).
+# Stack p/ Portainer CE (Swarm) — SUPABASE SELF-HOSTED COMPLETO + app.
+# Imagens no ghcr (públicas). Sem bind mounts (db e kong já trazem config embutida).
+# Portas publicadas: app :8390 · Studio :8391 · Kong (API Supabase) :8392
+# Troque os secrets em produção.
 version: "3.8"
 
 services:
@@ -11,11 +10,67 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
+      JWT_SECRET: 4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c
     volumes:
       - db_data:/var/lib/postgresql/data
     deploy:
-      restart_policy:
-        condition: any
+      restart_policy: { condition: any }
+
+  rest:
+    image: postgrest/postgrest:v12.2.0
+    environment:
+      PGRST_DB_URI: postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: 4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    deploy:
+      restart_policy: { condition: any }
+
+  kong:
+    image: ghcr.io/cairowesley/opa-api-whatsapp-kong:latest
+    ports:
+      - "8392:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 16m
+    deploy:
+      restart_policy: { condition: any }
+
+  meta:
+    image: supabase/postgres-meta:v0.84.2
+    environment:
+      PG_META_PORT: "8080"
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: "5432"
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
+    deploy:
+      restart_policy: { condition: any }
+
+  studio:
+    image: supabase/studio:20241014-c083b3b
+    ports:
+      - "8391:3000"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
+      DEFAULT_ORGANIZATION_NAME: Local
+      DEFAULT_PROJECT_NAME: opa-api-whatsapp
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_PUBLIC_URL: http://localhost:8392
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogImFub24iLAogICJpc3MiOiAic3VwYWJhc2UiLAogICJpYXQiOiAxNzE1MDUwODAwLAogICJleHAiOiAxODcyODE3MjAwCn0.JxiPF6G9sDr6KKS4f8UHS9sCtOUtiD4PK4Wq5BsyRck
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M
+      AUTH_JWT_SECRET: 4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c
+    deploy:
+      restart_policy: { condition: any }
 
   redis:
     image: redis:7-alpine
@@ -23,8 +78,7 @@ services:
     environment:
       REDIS_PASSWORD: localredispass
     deploy:
-      restart_policy:
-        condition: any
+      restart_policy: { condition: any }
 
   app:
     image: ghcr.io/cairowesley/opa-api-whatsapp-app:latest
@@ -45,8 +99,7 @@ services:
       DASHBOARD_DEFAULT_USER: admin
       DASHBOARD_DEFAULT_PASSWORD: admin123
     deploy:
-      restart_policy:
-        condition: any
+      restart_policy: { condition: any }
 
   worker:
     image: ghcr.io/cairowesley/opa-api-whatsapp-worker:latest
@@ -64,8 +117,7 @@ services:
       SCHEDULER_INTERVAL_SEC: "60"
       REVALIDATE_HOURS: "12"
     deploy:
-      restart_policy:
-        condition: any
+      restart_policy: { condition: any }
 
 volumes:
   db_data:

@@ -1,0 +1,4 @@
+# Kong (gateway do Supabase) com a config declarativa embutida — pra deploy via
+# Web editor do Portainer (Swarm), sem bind mounts.
+FROM kong:2.8.1
+COPY docker/kong/kong.yml /home/kong/kong.yml
