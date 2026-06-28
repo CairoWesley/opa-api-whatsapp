@@ -198,16 +198,40 @@ export async function ensureSeedUser(): Promise<void> {
 }
 
 // ── Sync runs + estatísticas ────────────────────────────────────────────────
-export async function insertSyncRun(r: Record<string, any>): Promise<void> {
-  await exec(
-    `insert into sync_runs (client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [r.client_id, r.status, r.is_full ?? false, r.resources_count ?? 0, r.ok_count ?? 0, r.error_count ?? 0, r.total_upserted ?? 0, r.started_at, r.finished_at],
+// Cria a run no INÍCIO (status running) e devolve o id; atualiza no fim. Assim
+// toda execução fica registrada — mesmo se interrompida.
+export async function createSyncRun(clientId: string, isFull: boolean, startedAt: string): Promise<string | null> {
+  const r = await q1<{ id: string }>(
+    `insert into sync_runs (client_id, status, is_full, started_at) values ($1,'running',$2,$3) returning id`,
+    [clientId, isFull, startedAt],
   );
+  return r?.id ?? null;
+}
+export async function finishSyncRun(id: string, f: Record<string, any>): Promise<void> {
+  await exec(
+    `update sync_runs set status=$1, resources_count=$2, ok_count=$3, error_count=$4, total_upserted=$5, finished_at=now() where id=$6`,
+    [f.status, f.resources_count ?? 0, f.ok_count ?? 0, f.error_count ?? 0, f.total_upserted ?? 0, id],
+  );
+}
+// Reconcilia execuções/clientes presos em "running" (worker morreu no meio).
+// maxAgeMin=0 (boot) marca todos; >0 só os antigos (não mexe nos ativos).
+export async function reconcileStuck(maxAgeMin = 0): Promise<void> {
+  const ageRun = maxAgeMin > 0 ? `and started_at < now() - interval '${maxAgeMin} minutes'` : "";
+  await exec(`update sync_runs set status='interrupted', finished_at=now() where status='running' ${ageRun}`);
+  const ageCli = maxAgeMin > 0 ? `and (last_synced_at is null or last_synced_at < now() - interval '${maxAgeMin} minutes')` : "";
+  await exec(`update opa_clients set last_sync_status='interrupted', cancel_requested=false where last_sync_status in ('running','queued') ${ageCli}`);
 }
 export async function listRecentRuns(limit = 20): Promise<any[]> {
   return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
             from sync_runs order by started_at desc limit $1`, [limit]);
+}
+export async function listRuns(clientId: string | null, limit = 100): Promise<any[]> {
+  const lim = Math.min(Math.max(limit, 1), 500);
+  if (clientId)
+    return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
+              from sync_runs where client_id=$1 order by started_at desc limit $2`, [clientId, lim]);
+  return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
+            from sync_runs order by started_at desc limit $1`, [lim]);
 }
 export async function allRunsLite(): Promise<{ client_id: string; status: string; started_at: string; total_upserted: number }[]> {
   return q(`select client_id, status, started_at, total_upserted from sync_runs`);

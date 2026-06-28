@@ -105,8 +105,10 @@ export async function syncClient(
   // Limpa flag de cancelamento de uma execução anterior.
   await repo.clearCancel(clientId).catch(() => {});
   // "running" + carimba a TENTATIVA (last_synced_at = última vez que tentou,
-  // independente de sucesso).
+  // independente de sucesso). Cria a RUN já (status running) p/ aparecer no
+  // painel mesmo se for interrompida.
   await repo.setSyncState(clientId, "running", null, true);
+  const runId = await repo.createSyncRun(clientId, full, startedAt).catch(() => null);
 
   const token = decryptToken(client.token_encrypted);
   const opa = new OpaClient({
@@ -148,17 +150,15 @@ export async function syncClient(
   await repo.setSyncState(clientId, status, errSummary, false);
 
   const totalUpserted = results.reduce((a, r) => a + r.records_upserted, 0);
-  await repo.insertSyncRun({
-    client_id: clientId,
-    status,
-    is_full: full,
-    resources_count: results.length,
-    ok_count: results.filter((r) => r.status === "ok").length,
-    error_count: results.filter((r) => r.status === "error").length,
-    total_upserted: totalUpserted,
-    started_at: startedAt,
-    finished_at: new Date().toISOString(),
-  }).catch(() => {});
+  if (runId) {
+    await repo.finishSyncRun(runId, {
+      status,
+      resources_count: results.length,
+      ok_count: results.filter((r) => r.status === "ok").length,
+      error_count: results.filter((r) => r.status === "error").length,
+      total_upserted: totalUpserted,
+    }).catch(() => {});
+  }
 
   cacheInvalidatePrefix(`data:${clientId}:`);
   cacheInvalidatePrefix("stats:");

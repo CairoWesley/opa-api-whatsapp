@@ -25,6 +25,9 @@ export async function runScheduler(): Promise<{ enqueued: string[]; revalidated:
   const revalOn = s.auto_revalidate_enabled ?? true;
   const revalidateMs = Number(s.revalidate_hours ?? config.revalidateHours()) * 3600_000;
 
+  // Reconcilia execuções presas há >15min (worker que morreu sem reportar).
+  await repo.reconcileStuck(15).catch(() => {});
+
   const enqueued: string[] = [];
   const revalidated: string[] = [];
   if (!resyncOn && !revalOn) return { enqueued, revalidated };

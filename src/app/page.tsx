@@ -59,6 +59,7 @@ export default function AdminPage() {
 
   // histórico
   const [logs, setLogs] = useState<SyncLog[]>([]);
+  const [runs, setRuns] = useState<any[]>([]);
   const [logClient, setLogClient] = useState("");
 
   // dashboard
@@ -98,7 +99,9 @@ export default function AdminPage() {
   const loadTokens = useCallback(async () => setTokens((await api("/tokens")).tokens), [api]);
   const loadLogs = useCallback(async (clientId = "") => {
     const qs = clientId ? `?client_id=${clientId}` : "";
-    setLogs((await api(`/sync/logs${qs}`)).logs);
+    const [l, r] = await Promise.all([api(`/sync/logs${qs}`), api(`/sync/runs${qs}`)]);
+    setLogs(l.logs);
+    setRuns(r.runs);
   }, [api]);
   const loadOverview = useCallback(async () => setOverview(await api("/stats/overview")), [api]);
   const loadSettings = useCallback(async () => setSettings(await api("/settings")), [api]);
@@ -300,7 +303,7 @@ export default function AdminPage() {
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "filtros" && <FilterTesterView {...{ resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest }} />}
           {view === "query" && <QueryView {...{ qSql, setQSql, qResult, qRunning, runQuery }} />}
-          {view === "historico" && <HistoricoView {...{ logs, clients, logClient, setLogClient, loadLogs }} />}
+          {view === "historico" && <HistoricoView {...{ logs, runs, clients, logClient, setLogClient, loadLogs }} />}
           {view === "config" && <ConfigView {...{ settings, saveSettings }} />}
           {view === "usuarios" && <UsersView {...{ users, nu, setNu, createUserFn, delUser, loadUsers }} />}
           {view === "docs" && <DocsView {...{ docList, docSlug, docHtml, docLoading, openDoc }} />}
@@ -413,7 +416,7 @@ function DashboardView(p: any) {
                   <td className="muted">{fmt(r.started_at)}</td>
                   <td>{slugOf(r.client_id)}</td>
                   <td>{r.is_full ? <span className="pill running">full</span> : <span className="muted">incr.</span>}</td>
-                  <td><span className={`pill ${r.status === "ok" ? "ok" : "error"}`}><span className="dot" />{r.status}</span></td>
+                  <td><StatusPill status={r.status} /></td>
                   <td>{r.resources_count}</td>
                   <td><span style={{ color: "var(--ok)" }}>{r.ok_count}</span> / <span style={{ color: r.error_count ? "var(--danger)" : "var(--muted)" }}>{r.error_count}</span></td>
                   <td className="mono">{Number(r.total_upserted).toLocaleString("pt-BR")}</td>
@@ -612,18 +615,42 @@ function EditClient({ client, onCancel, onSave }: { client: Client; onCancel: ()
 }
 
 function HistoricoView(p: any) {
-  const { logs, clients, logClient, setLogClient, loadLogs } = p;
+  const { logs, runs, clients, logClient, setLogClient, loadLogs } = p;
   const slugOf = (id: string) => clients.find((c: Client) => c.id === id)?.slug || "—";
   return (
+    <>
     <section className="card">
       <div className="card-head">
-        <h2>Histórico de sync</h2><span className="sp" />
+        <h2>Execuções (status)</h2><span className="sp" />
         <select style={{ width: 200 }} value={logClient} onChange={(e) => setLogClient(e.target.value)}>
           <option value="">(todos os clientes)</option>
           {clients.map((c: Client) => <option key={c.id} value={c.id}>{c.slug}</option>)}
         </select>
         <button className="ghost xs" onClick={() => loadLogs(logClient)}>↻</button>
       </div>
+      <div className="tbl-wrap">
+        <table>
+          <thead><tr><th>Início</th><th>Cliente</th><th>Tipo</th><th>Status</th><th>Recursos</th><th>OK/Erro</th><th>Registros</th><th>Duração</th></tr></thead>
+          <tbody>
+            {(runs || []).map((r: any) => (
+              <tr key={r.id}>
+                <td className="muted">{fmt(r.started_at)}</td>
+                <td>{slugOf(r.client_id)}</td>
+                <td>{r.is_full ? <span className="pill running">full</span> : <span className="muted">incr.</span>}</td>
+                <td><StatusPill status={r.status} /></td>
+                <td>{r.resources_count}</td>
+                <td><span style={{ color: "var(--ok)" }}>{r.ok_count}</span>/<span style={{ color: r.error_count ? "var(--danger)" : "var(--muted)" }}>{r.error_count}</span></td>
+                <td className="mono">{Number(r.total_upserted).toLocaleString("pt-BR")}</td>
+                <td className="muted">{r.finished_at ? fmtDur((new Date(r.finished_at).getTime() - new Date(r.started_at).getTime())) : "…"}</td>
+              </tr>
+            ))}
+            {(!runs || runs.length === 0) && <tr><td colSpan={8} className="empty">Nenhuma execução.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section className="card">
+      <div className="card-head"><h2>Detalhe por recurso</h2></div>
       <div className="tbl-wrap">
         <table>
           <thead><tr><th>Quando</th><th>Cliente</th><th>Recurso</th><th>Status</th><th>Registros</th><th>Motivo do erro</th></tr></thead>
@@ -643,6 +670,7 @@ function HistoricoView(p: any) {
         </table>
       </div>
     </section>
+    </>
   );
 }
 
@@ -855,7 +883,7 @@ function Stat({ label, value, small }: { label: string; value: any; small?: bool
 }
 function StatusPill({ status }: { status: string | null }) {
   if (!status) return <span className="muted">—</span>;
-  const cls = status === "ok" ? "ok" : status === "error" ? "error" : status === "cancelled" ? "off" : "running";
+  const cls = status === "ok" ? "ok" : status === "error" || status === "interrupted" ? "error" : status === "cancelled" ? "off" : "running";
   return <span className={`pill ${cls}`}><span className="dot" />{status}</span>;
 }
 function Toast({ msg, ok }: { msg: string; ok: boolean }) {

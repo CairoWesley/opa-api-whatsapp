@@ -5,6 +5,7 @@ import { SYNC_QUEUE, connectionOpts, scheduleTick, type SyncJobData } from "../l
 import { syncClient } from "../lib/extractor";
 import { runScheduler } from "../lib/scheduler";
 import { config } from "../lib/config";
+import * as repo from "../lib/repo";
 
 // Em container (stdout = pipe, não-TTY) o Node BUFFERIZA os logs → parecem
 // sumir. setBlocking força escrita síncrona = logs aparecem na hora.
@@ -47,6 +48,10 @@ worker.on("failed", (job, err) => { if (job?.name !== "tick") log(`✖ job ${job
 worker.on("error", (err) => log(`worker error: ${err?.message}`));
 
 log(`[worker] up — queue=${SYNC_QUEUE} concurrency=${concurrency}`);
+
+// Na subida, nada está realmente rodando: marca execuções/clientes presos em
+// "running" como "interrupted" (worker reiniciou no meio).
+repo.reconcileStuck(0).then(() => log("[worker] reconcile: presos em running → interrupted")).catch((e) => log(`[worker] reconcile falhou: ${e?.message}`));
 
 async function shutdown() {
   log("[worker] shutting down…");
