@@ -106,13 +106,17 @@ export async function upsertDocuments(clientId: string, resource: string, docs: 
   const cols = ["client_id", "external_id", ...typed, "raw", "synced_at"];
   const synced = nowIso();
 
-  const rows: unknown[][] = [];
+  // Dedupe por external_id DENTRO do lote: o INSERT ... ON CONFLICT do Postgres
+  // não aceita a mesma chave 2x no mesmo comando. Duplicatas surgem das passadas
+  // (abertura+encerramento) ou da própria OPA. Mantém a última ocorrência.
+  const byId = new Map<string, unknown[]>();
   for (const d of docs) {
     const externalId = String(d._id ?? d.id ?? "");
     if (!externalId) continue;
     const mapped = mapTypedColumns(resource, d);
-    rows.push([clientId, externalId, ...typed.map((k) => mapped[k]), JSON.stringify(d), synced]);
+    byId.set(externalId, [clientId, externalId, ...typed.map((k) => mapped[k]), JSON.stringify(d), synced]);
   }
+  const rows = [...byId.values()];
   if (rows.length === 0) return 0;
 
   const n = cols.length;

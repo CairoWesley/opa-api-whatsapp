@@ -8,7 +8,7 @@ import { getResource, RESOURCE_KEYS, type Resource } from "./resources";
 import * as repo from "./repo";
 import type { ClientSecretRow, ResourceSyncResult, SyncResult } from "./types";
 
-const BATCH = 500;
+const BATCH = 1000;
 
 // Executa fn sobre items com no máx. `n` em paralelo (pool de "threads" lógicas).
 async function mapPool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {

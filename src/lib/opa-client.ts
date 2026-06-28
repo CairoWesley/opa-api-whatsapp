@@ -11,6 +11,14 @@ import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
 
+// Agents com keep-alive: reusam conexão TCP/TLS entre as milhares de páginas
+// de um sync — corta o handshake e acelera MUITO. Insecure tem agent próprio.
+const AGENTS = {
+  http: new http.Agent({ keepAlive: true, maxSockets: 64 }),
+  https: new https.Agent({ keepAlive: true, maxSockets: 64 }),
+  httpsInsecure: new https.Agent({ keepAlive: true, maxSockets: 64, rejectUnauthorized: false }),
+};
+
 export type OpaDoc = Record<string, unknown> & { _id?: string; id?: string };
 
 export class OpaError extends Error {
@@ -82,8 +90,12 @@ export class OpaClient {
         "Content-Length": Buffer.byteLength(body),
       },
       timeout: this.timeoutMs,
-      // Só afeta HTTPS; ignora cert inválido quando habilitado por cliente.
-      ...(url.protocol === "https:" && this.insecureTls ? { rejectUnauthorized: false } : {}),
+      agent:
+        url.protocol === "http:"
+          ? AGENTS.http
+          : this.insecureTls
+            ? AGENTS.httpsInsecure
+            : AGENTS.https,
     };
 
     return new Promise((resolve, reject) => {
@@ -110,10 +122,12 @@ export class OpaClient {
     });
   }
 
-  private async page(path: string, filter: Record<string, unknown>, skip: number): Promise<OpaDoc[]> {
+  // Uma página por CURSOR (_id). Ordena por _id asc; sem skip (rápido em base
+  // grande — não paga o custo crescente do offset).
+  private async page(path: string, filter: Record<string, unknown>): Promise<OpaDoc[]> {
     const data = await this.request(path, {
       filter,
-      options: { limit: this.pageSize, skip },
+      options: { limit: this.pageSize, sort: { _id: 1 } },
     });
     const items =
       data && typeof data === "object" && "data" in (data as object)
@@ -122,15 +136,18 @@ export class OpaClient {
     return Array.isArray(items) ? items : [];
   }
 
-  // Itera todos os documentos de um recurso, paginando por skip/limit.
+  // Itera todos os documentos de um recurso, paginando por CURSOR no _id:
+  // cada página puxa `_id > último_id_visto`. Sem offset.
   async *iterDocuments(path: string, filter: Record<string, unknown> = {}): AsyncGenerator<OpaDoc> {
-    let skip = 0;
+    let lastId: string | null = null;
     for (;;) {
-      const items = await this.page(path, filter, skip);
+      const f = lastId ? { ...filter, _id: { $gt: lastId } } : { ...filter };
+      const items = await this.page(path, f);
       if (items.length === 0) break;
       for (const item of items) yield item;
-      if (items.length < this.pageSize) break;
-      skip += this.pageSize;
+      const last = items[items.length - 1]._id;
+      if (!last || items.length < this.pageSize) break;
+      lastId = String(last);
     }
   }
 

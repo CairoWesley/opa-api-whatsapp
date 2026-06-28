@@ -13,7 +13,7 @@ export const config = {
   encryptionKey: () => required("APP_ENCRYPTION_KEY"),
 
   cacheTtlSeconds: () => Number(process.env.CACHE_TTL_SECONDS ?? 60),
-  opaPageSize: () => Number(process.env.OPA_PAGE_SIZE ?? 500),
+  opaPageSize: () => Number(process.env.OPA_PAGE_SIZE ?? 1000),
   opaTimeoutMs: () => Number(process.env.OPA_TIMEOUT_MS ?? 30000),
   defaultLookbackDays: () => Number(process.env.DEFAULT_LOOKBACK_DAYS ?? 30),
 

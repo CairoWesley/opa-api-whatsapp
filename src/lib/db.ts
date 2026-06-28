@@ -9,7 +9,7 @@ export function pool(): Pool {
   if (!_pool) {
     _pool = new Pool({
       connectionString: config.databaseUrl(),
-      max: Number(process.env.PG_POOL_MAX ?? 10),
+      max: Number(process.env.PG_POOL_MAX ?? 20),
       idleTimeoutMillis: 30_000,
     });
     _pool.on("error", (e) => console.error("[pg] pool error:", e.message));
