@@ -32,7 +32,7 @@ export function withAdminRole(
 ) {
   return async (req: Request, ctx: { params: Record<string, string> }) => {
     try {
-      requireAdminRole(req);
+      await requireAdminRole(req);
       return await handler(req, ctx);
     } catch (err) {
       if (err instanceof UnauthorizedError) return error(err.message, 401);

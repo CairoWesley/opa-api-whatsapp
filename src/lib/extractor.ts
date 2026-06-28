@@ -54,6 +54,7 @@ async function syncResource(
 ): Promise<ResourceSyncResult> {
   const passes = buildPasses(resource, client, full, override);
   let total = 0;
+  let flush = 0;
   try {
     for (const filter of passes) {
       let batch: OpaDoc[] = [];
@@ -62,9 +63,16 @@ async function syncResource(
         if (batch.length >= BATCH) {
           total += await repo.upsertDocuments(client.id, resource.key, batch);
           batch = [];
+          // Checkpoint do kill switch (a cada 3 lotes p/ não martelar o banco).
+          if (++flush % 3 === 0 && (await repo.isCancelRequested(client.id))) {
+            return { resource: resource.key, status: "cancelled", records_upserted: total };
+          }
         }
       }
       if (batch.length) total += await repo.upsertDocuments(client.id, resource.key, batch);
+      if (await repo.isCancelRequested(client.id)) {
+        return { resource: resource.key, status: "cancelled", records_upserted: total };
+      }
     }
     await repo.insertSyncLog(client.id, resource.key, "ok", total, null).catch(() => {});
     return { resource: resource.key, status: "ok", records_upserted: total };
@@ -94,6 +102,8 @@ export async function syncClient(
   const keys = requested.filter((k) => !skip.has(k));
   // 1º sync (nunca sincronizado) = FULL automático. Override ignora full.
   const full = !override && (forceFull === true || client.last_synced_at == null);
+  // Limpa flag de cancelamento de uma execução anterior.
+  await repo.clearCancel(clientId).catch(() => {});
   // "running" + carimba a TENTATIVA (last_synced_at = última vez que tentou,
   // independente de sucesso).
   await repo.setSyncState(clientId, "running", null, true);
@@ -127,12 +137,13 @@ export async function syncClient(
     await repo.setBlockedResources(clientId, merged);
   }
 
-  const status = hadError ? "error" : "ok";
-  const errSummary =
-    results
-      .filter((r) => r.error)
-      .map((r) => `${r.resource}: ${r.error}`)
-      .join("; ") || null;
+  const cancelled = results.some((r) => r.status === "cancelled");
+  const status = cancelled ? "cancelled" : hadError ? "error" : "ok";
+  const errSummary = cancelled
+    ? "cancelado pelo usuário"
+    : results.filter((r) => r.error).map((r) => `${r.resource}: ${r.error}`).join("; ") || null;
+  // Limpa o flag de cancelamento e grava o status final.
+  await repo.clearCancel(clientId).catch(() => {});
   // Não re-carimba last_synced_at (já foi no início = tentativa). Só o status.
   await repo.setSyncState(clientId, status, errSummary, false);
 

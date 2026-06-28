@@ -77,6 +77,19 @@ export async function setSyncState(id: string, status: string, errorMsg: string 
     await exec(`update opa_clients set last_sync_status=$1, last_sync_error=$2 where id=$3`, [status, errorMsg, id]);
 }
 
+// ── Kill switch do sync ─────────────────────────────────────────────────────
+export async function requestCancel(id: string | null): Promise<number> {
+  // id null = cancela TODOS os que estão rodando/na fila (kill switch global).
+  if (id) return exec(`update opa_clients set cancel_requested = true where id = $1`, [id]);
+  return exec(`update opa_clients set cancel_requested = true where last_sync_status in ('running','queued')`);
+}
+export async function clearCancel(id: string): Promise<void> {
+  await exec(`update opa_clients set cancel_requested = false where id = $1`, [id]);
+}
+export async function isCancelRequested(id: string): Promise<boolean> {
+  return (await q1<{ c: boolean }>(`select cancel_requested as c from opa_clients where id = $1`, [id]))?.c ?? false;
+}
+
 export async function setBlockedResources(id: string, blocked: string[]): Promise<void> {
   await exec(`update opa_clients set blocked_resources=$1 where id=$2`, [blocked, id]);
 }
@@ -153,6 +166,9 @@ export async function queryDocuments(
 // ── Usuários do dashboard ───────────────────────────────────────────────────
 export async function getUserByUsername(username: string): Promise<DashUser | null> {
   return q1<DashUser>(`select id, username, password_hash, active, role from dashboard_users where username = $1`, [username]);
+}
+export async function getUserRole(id: string): Promise<string | null> {
+  return (await q1<{ role: string }>(`select role from dashboard_users where id = $1`, [id]))?.role ?? null;
 }
 export async function countUsers(): Promise<number> {
   return (await q1<{ n: number }>(`select count(*)::int as n from dashboard_users`))?.n ?? 0;

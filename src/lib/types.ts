@@ -29,7 +29,7 @@ export type ClientSecretRow = ClientRow & { token_encrypted: string };
 
 export type ResourceSyncResult = {
   resource: string;
-  status: "ok" | "error";
+  status: "ok" | "error" | "cancelled";
   records_upserted: number;
   error?: string;
   permission_error?: boolean; // 401/403 → recurso bloqueado até revalidar
@@ -38,7 +38,7 @@ export type ResourceSyncResult = {
 export type SyncResult = {
   client_id: string;
   client_slug: string;
-  status: "ok" | "error" | "scheduled" | "running";
+  status: "ok" | "error" | "scheduled" | "running" | "cancelled";
   resources: ResourceSyncResult[];
   total_upserted: number;
 };

@@ -98,11 +98,17 @@ export function requireAdmin(req: Request): void {
   requireAuth(req);
 }
 
-// Exige papel ADMIN: token de API (admin) OU sessão com role=admin.
-// Sessão de gestor é rejeitada (403).
-export function requireAdminRole(req: Request): void {
+// Exige papel ADMIN: token de API (admin) OU sessão de usuário admin.
+// Confere o papel ATUAL no banco (não confia só no cookie, que pode ser antigo
+// — assinado antes do campo role existir — ou estar defasado).
+export async function requireAdminRole(req: Request): Promise<void> {
   const p = requireAuth(req);
-  if (p.kind === "session" && p.role !== "admin") {
+  if (p.kind === "token") return; // token de API = admin total
+  if (p.kind === "session") {
+    const repo = await import("./repo");
+    const role = await repo.getUserRole(p.uid);
+    if (role === "admin") return;
     throw new ForbiddenError("Apenas administradores podem fazer isso.");
   }
+  throw new ForbiddenError("Apenas administradores podem fazer isso.");
 }

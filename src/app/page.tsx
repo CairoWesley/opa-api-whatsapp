@@ -198,6 +198,8 @@ export default function AdminPage() {
     try { await api(`/sync/clients/${id}${full ? "?full=true" : ""}`, { method: "POST" }); setTimeout(loadClients, 1500); setTimeout(loadClients, 5000); } catch (e) { notify((e as Error).message, false); }
   };
   const seeErrors = (id: string) => { setLogClient(id); setView("historico"); };
+  const cancelSync = async (id: string) => { try { await api(`/clients/${id}/cancel`, { method: "POST" }); notify("Cancelamento solicitado — para no próximo checkpoint"); setTimeout(loadClients, 1500); setTimeout(loadClients, 5000); } catch (e) { notify((e as Error).message, false); } };
+  const cancelAll = async () => { if (!confirm("KILL SWITCH: cancelar TODOS os syncs em andamento e esvaziar a fila?")) return; try { const r = await api("/sync/cancel-all", { method: "POST" }); notify(`Cancelado: ${r.clients_flagged} cliente(s) sinalizados, ${r.jobs_drained} job(s) removidos`); setTimeout(loadClients, 1500); } catch (e) { notify((e as Error).message, false); } };
   const revalidate = async (id: string) => {
     notify("Revalidando token em cada rota…");
     try {
@@ -293,7 +295,7 @@ export default function AdminPage() {
         </div>
         <div className="content">
           {view === "dashboard" && <DashboardView {...{ overview, clients, setView, setEditing, revalidate, syncNow, loadOverview }} />}
-          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, archive, unarchive, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit, showArchived, setShowArchived }} />}
+          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, archive, unarchive, seeErrors, revalidate, cancelSync, cancelAll, loadClients, createClient, editing, setEditing, saveEdit, showArchived, setShowArchived }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "filtros" && <FilterTesterView {...{ resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest }} />}
@@ -427,8 +429,9 @@ function DashboardView(p: any) {
 }
 
 function ClientesView(p: any) {
-  const { form, setForm, clients, syncNow, toggle, archive, unarchive, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit, showArchived, setShowArchived } = p;
+  const { form, setForm, clients, syncNow, toggle, archive, unarchive, seeErrors, revalidate, cancelSync, cancelAll, loadClients, createClient, editing, setEditing, saveEdit, showArchived, setShowArchived } = p;
   if (editing) return <EditClient client={editing} onCancel={() => setEditing(null)} onSave={saveEdit} />;
+  const anyRunning = clients.some((c: Client) => c.last_sync_status === "running" || c.last_sync_status === "queued");
   return (
     <>
       <section className="card">
@@ -447,7 +450,7 @@ function ClientesView(p: any) {
       </section>
 
       <section className="card">
-        <div className="card-head"><h2>Clientes</h2><span className="sp" /><label className="chk" style={{ marginRight: 10 }}><input type="checkbox" checked={showArchived} onChange={(e) => { setShowArchived(e.target.checked); setTimeout(loadClients, 0); }} /><span>mostrar arquivados</span></label><button className="ghost xs" onClick={() => loadClients()}>↻ Atualizar</button></div>
+        <div className="card-head"><h2>Clientes</h2><span className="sp" />{anyRunning && <button className="danger xs" onClick={cancelAll}>⛔ Parar todos os syncs</button>}<label className="chk" style={{ marginRight: 10 }}><input type="checkbox" checked={showArchived} onChange={(e) => { setShowArchived(e.target.checked); setTimeout(loadClients, 0); }} /><span>mostrar arquivados</span></label><button className="ghost xs" onClick={() => loadClients()}>↻ Atualizar</button></div>
         <div className="tbl-wrap">
           <table>
             <thead><tr><th>Slug</th><th>Nome</th><th>Status</th><th>Último sync</th><th>Ações</th></tr></thead>
@@ -466,7 +469,9 @@ function ClientesView(p: any) {
                       <button className="xs" onClick={() => unarchive(c.id)}>Desarquivar</button>
                     ) : (
                       <>
-                        <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>
+                        {(c.last_sync_status === "running" || c.last_sync_status === "queued")
+                          ? <button className="danger xs" onClick={() => cancelSync(c.id)}>⛔ Cancelar</button>
+                          : <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>}
                         <button className="sec xs" onClick={() => syncNow(c.id, true)}>Full</button>
                         <button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar token</button>
                         <button className="ghost xs" onClick={() => setEditing(c)}>Editar</button>
@@ -850,7 +855,7 @@ function Stat({ label, value, small }: { label: string; value: any; small?: bool
 }
 function StatusPill({ status }: { status: string | null }) {
   if (!status) return <span className="muted">—</span>;
-  const cls = status === "ok" ? "ok" : status === "error" ? "error" : "running";
+  const cls = status === "ok" ? "ok" : status === "error" ? "error" : status === "cancelled" ? "off" : "running";
   return <span className={`pill ${cls}`}><span className="dot" />{status}</span>;
 }
 function Toast({ msg, ok }: { msg: string; ok: boolean }) {

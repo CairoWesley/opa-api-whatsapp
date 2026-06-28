@@ -39,6 +39,7 @@ services:
       - ./supabase/migrations/0010_user_roles.sql:/docker-entrypoint-initdb.d/01i-roles.sql:ro
       - ./supabase/migrations/0011_disabled_resources.sql:/docker-entrypoint-initdb.d/01j-disabled.sql:ro
       - ./supabase/migrations/0012_archive_clients.sql:/docker-entrypoint-initdb.d/01k-archive.sql:ro
+      - ./supabase/migrations/0013_cancel_sync.sql:/docker-entrypoint-initdb.d/01l-cancel.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]

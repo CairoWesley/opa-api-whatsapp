@@ -74,3 +74,15 @@ export async function getJobStatus(id: string) {
 export async function queueCounts() {
   return queue().getJobCounts("waiting", "active", "completed", "failed", "delayed");
 }
+
+// Remove jobs de SYNC que ainda não começaram (espera/atrasados). Não mata os
+// ativos — esses param via flag de cancelamento (checkpoint). Preserva o tick.
+export async function drainQueue(): Promise<number> {
+  const q = queue();
+  const jobs = [...(await q.getWaiting()), ...(await q.getDelayed())];
+  let n = 0;
+  for (const j of jobs) {
+    if (j.name === "sync") { await j.remove().catch(() => {}); n++; }
+  }
+  return n;
+}
