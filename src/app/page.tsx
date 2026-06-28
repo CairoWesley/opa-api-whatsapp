@@ -15,8 +15,12 @@ type Client = {
 type ResourceMeta = { key: string; filters: string[] };
 
 export default function AdminPage() {
-  const [token, setToken] = useState<string>("");
   const [authed, setAuthed] = useState(false);
+  const [booting, setBooting] = useState(true);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
+  const [me, setMe] = useState<string>("");
   const [clients, setClients] = useState<Client[]>([]);
   const [resources, setResources] = useState<ResourceMeta[]>([]);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -39,22 +43,20 @@ export default function AdminPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const api = useCallback(
-    async (path: string, opts: RequestInit = {}, tk?: string) => {
-      const res = await fetch(`/api${path}`, {
-        ...opts,
-        headers: {
-          Authorization: `Bearer ${tk ?? token}`,
-          "Content-Type": "application/json",
-          ...(opts.headers || {}),
-        },
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      return body;
-    },
-    [token],
-  );
+  // Chamadas à API usam o cookie de sessão (same-origin) — sem Authorization.
+  const api = useCallback(async (path: string, opts: RequestInit = {}) => {
+    const res = await fetch(`/api${path}`, {
+      ...opts,
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    });
+    if (res.status === 401) {
+      setAuthed(false);
+      throw new Error("Sessão expirada. Faça login novamente.");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    return body;
+  }, []);
 
   const loadClients = useCallback(async () => {
     setClients(await api("/clients"));
@@ -65,12 +67,17 @@ export default function AdminPage() {
     setResources(r.resources);
   }, [api]);
 
+  // Bootstrap: já tem sessão válida (cookie)?
   useEffect(() => {
-    const saved = typeof window !== "undefined" ? sessionStorage.getItem("opa_token") : null;
-    if (saved) {
-      setToken(saved);
-      setAuthed(true);
-    }
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.authenticated) {
+          setAuthed(true);
+          setMe(d.username || "API");
+        }
+      })
+      .finally(() => setBooting(false));
   }, []);
 
   useEffect(() => {
@@ -81,21 +88,32 @@ export default function AdminPage() {
   }, [authed, loadClients, loadResources]);
 
   const login = async () => {
-    const tk = token.trim();
-    if (!tk) return notify("Informe o token", false);
+    if (!username.trim() || !password) return notify("Informe usuário e senha", false);
+    setSigningIn(true);
     try {
-      await api("/clients", {}, tk);
-      sessionStorage.setItem("opa_token", tk);
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username.trim(), password }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Falha no login");
+      setMe(body.user?.username || username.trim());
+      setPassword("");
       setAuthed(true);
-    } catch {
-      notify("Token inválido", false);
+    } catch (e) {
+      notify((e as Error).message, false);
+    } finally {
+      setSigningIn(false);
     }
   };
 
-  const logout = () => {
-    sessionStorage.removeItem("opa_token");
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setAuthed(false);
-    setToken("");
+    setUsername("");
+    setPassword("");
+    setMe("");
   };
 
   const createClient = async () => {
@@ -152,29 +170,58 @@ export default function AdminPage() {
     }
   };
 
+  if (booting) {
+    return <div className="login-wrap"><div className="muted">Carregando…</div></div>;
+  }
+
   if (!authed) {
     return (
-      <>
-        <header><h1>🟢 OPA API WhatsApp — Admin</h1></header>
-        <main>
-          <section className="card" style={{ maxWidth: 460 }}>
-            <h2>Acesso</h2>
-            <label>Token de admin (APP_ADMIN_TOKEN)</label>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && login()}
-              placeholder="cole o token..."
-            />
-            <div style={{ marginTop: 12 }}>
-              <button onClick={login}>Entrar</button>
+      <div className="login-wrap">
+        <form
+          className="login-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            login();
+          }}
+        >
+          <div className="login-brand">
+            <span className="login-logo">🟢</span>
+            <div>
+              <h1>OPA Dashboard</h1>
+              <p className="muted">Painel gerencial — WhatsApp / OPA Suite</p>
             </div>
-            <p className="muted">O token fica só no seu navegador (sessionStorage).</p>
-          </section>
-        </main>
+          </div>
+
+          <label htmlFor="u">Usuário</label>
+          <input
+            id="u"
+            autoFocus
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="seu usuário"
+          />
+
+          <label htmlFor="p">Senha</label>
+          <input
+            id="p"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
+
+          <button className="login-btn" type="submit" disabled={signingIn}>
+            {signingIn ? "Entrando…" : "Entrar"}
+          </button>
+
+          <p className="muted login-foot">
+            Acesso via API é por token (Bearer). Este painel usa login e senha.
+          </p>
+        </form>
         {toast && <Toast {...toast} />}
-      </>
+      </div>
     );
   }
 
@@ -183,7 +230,7 @@ export default function AdminPage() {
       <header>
         <h1>🟢 OPA API WhatsApp — Admin</h1>
         <span className="spacer" />
-        <span className="muted">autenticado</span>
+        <span className="muted">{me ? `olá, ${me}` : "autenticado"}</span>
         <button className="ghost" onClick={logout}>Sair</button>
       </header>
       <main>

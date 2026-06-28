@@ -26,9 +26,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c}
     volumes:
       - db_data:/var/lib/postgresql/data
-      # init: roles -> migração -> grants (ordem alfabética)
+      # init: roles -> migrações -> grants (ordem alfabética)
       - ./docker/postgres/00-roles.sql:/docker-entrypoint-initdb.d/00-roles.sql:ro
       - ./supabase/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./supabase/migrations/0002_dashboard_users.sql:/docker-entrypoint-initdb.d/01b-users.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -90,6 +91,12 @@ services:
       OPA_TIMEOUT_MS: ${OPA_TIMEOUT_MS:-30000}
       DEFAULT_LOOKBACK_DAYS: ${DEFAULT_LOOKBACK_DAYS:-30}
       CRON_SECRET: ${CRON_SECRET:-local-admin-token}
+      # Dashboard (login usuário/senha) + sessão por cookie assinado.
+      SESSION_SECRET: ${SESSION_SECRET:-troque-este-secret-de-sessao-local}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      # 1º admin criado automaticamente no 1º login se a tabela estiver vazia.
+      DASHBOARD_DEFAULT_USER: ${DASHBOARD_DEFAULT_USER:-admin}
+      DASHBOARD_DEFAULT_PASSWORD: ${DASHBOARD_DEFAULT_PASSWORD:-admin123}
 
   # ── Supabase Studio (opcional): docker compose --profile studio up -d ──────────
   meta:
