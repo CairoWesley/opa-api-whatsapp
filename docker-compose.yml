@@ -9,7 +9,7 @@
 #   App / Admin .......... http://localhost:3000   (token = APP_ADMIN_TOKEN)
 #   Supabase API (Kong) .. http://localhost:8000
 #   Supabase Studio ...... http://localhost:8001   (profile "studio")
-#   Postgres ............. localhost:5432  (user postgres / POSTGRES_PASSWORD) — p/ Power BI
+#   Postgres ............. localhost:5433  (user postgres / POSTGRES_PASSWORD) — p/ Power BI
 #
 # Secrets default = os do seu ambiente self-hosted. Troque via .env (veja .env.docker.example).
 # ──────────────────────────────────────────────────────────────────────────────
@@ -19,7 +19,7 @@ services:
     image: supabase/postgres:15.1.1.78
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-48debb7e1760c641ce6a250a6173c8cf}
