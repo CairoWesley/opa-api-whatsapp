@@ -7,8 +7,8 @@ function required(name: string): string {
 }
 
 export const config = {
-  supabaseUrl: () => required("SUPABASE_URL"),
-  supabaseServiceKey: () => required("SUPABASE_SERVICE_KEY"),
+  // Conexão direta ao Postgres (driver pg). Sem Kong/PostgREST.
+  databaseUrl: () => required("DATABASE_URL"),
   adminToken: () => required("APP_ADMIN_TOKEN"),
   encryptionKey: () => required("APP_ENCRYPTION_KEY"),
 

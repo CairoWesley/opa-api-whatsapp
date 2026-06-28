@@ -1,7 +1,6 @@
-// Tokens de acesso à API do cliente. Guardamos só sha256(token); o valor em
-// claro só existe no momento da geração.
+// Tokens de acesso à API do cliente. Só sha256(token) é guardado.
 import { randomBytes, createHash } from "node:crypto";
-import { supabaseAdmin } from "./supabase";
+import { q, q1, exec } from "./db";
 
 export type ApiTokenRow = {
   id: string;
@@ -20,64 +19,32 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-// Gera um token novo: `opa_<48 hex>`. Retorna o valor em claro + linha p/ inserir.
-export function generateToken(name: string, scopes: string[], clientId: string | null) {
-  const secret = randomBytes(24).toString("hex");
-  const token = `opa_${secret}`;
-  return {
-    token,
-    row: {
-      name,
-      client_id: clientId,
-      token_prefix: token.slice(0, 12),
-      token_hash: hashToken(token),
-      scopes: scopes.length ? scopes : ["data:read"],
-    },
-  };
-}
-
 export async function listTokens(): Promise<ApiTokenRow[]> {
-  const { data, error } = await supabaseAdmin()
-    .from("api_tokens")
-    .select(COLS)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as unknown as ApiTokenRow[];
+  return q<ApiTokenRow>(`select ${COLS} from api_tokens order by created_at desc`);
 }
 
 export async function createToken(name: string, scopes: string[], clientId: string | null): Promise<{ token: string; row: ApiTokenRow }> {
-  const { token, row } = generateToken(name, scopes, clientId);
-  const { data, error } = await supabaseAdmin()
-    .from("api_tokens")
-    .insert(row)
-    .select(COLS)
-    .single();
-  if (error) throw error;
-  return { token, row: data as unknown as ApiTokenRow };
+  const token = `opa_${randomBytes(24).toString("hex")}`;
+  const row = await q1<ApiTokenRow>(
+    `insert into api_tokens (name, client_id, token_prefix, token_hash, scopes)
+     values ($1,$2,$3,$4,$5) returning ${COLS}`,
+    [name, clientId, token.slice(0, 12), hashToken(token), scopes.length ? scopes : ["data:read"]],
+  );
+  return { token, row: row as ApiTokenRow };
 }
 
 export async function deleteToken(id: string): Promise<void> {
-  const { error } = await supabaseAdmin().from("api_tokens").delete().eq("id", id);
-  if (error) throw error;
+  await exec(`delete from api_tokens where id = $1`, [id]);
 }
 
 export async function setTokenActive(id: string, active: boolean): Promise<void> {
-  const { error } = await supabaseAdmin().from("api_tokens").update({ active }).eq("id", id);
-  if (error) throw error;
+  await exec(`update api_tokens set active = $1 where id = $2`, [active, id]);
 }
 
-// Valida um token de API pelo hash. Retorna a linha (sem hash) se ativo.
 export async function verifyApiToken(token: string): Promise<ApiTokenRow | null> {
   if (!token.startsWith("opa_")) return null;
-  const { data, error } = await supabaseAdmin()
-    .from("api_tokens")
-    .select(COLS)
-    .eq("token_hash", hashToken(token))
-    .eq("active", true)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  // marca uso (best-effort, sem await crítico)
-  void supabaseAdmin().from("api_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", (data as ApiTokenRow).id);
-  return data as unknown as ApiTokenRow;
+  const row = await q1<ApiTokenRow>(`select ${COLS} from api_tokens where token_hash = $1 and active = true`, [hashToken(token)]);
+  if (!row) return null;
+  void exec(`update api_tokens set last_used_at = now() where id = $1`, [row.id]).catch(() => {});
+  return row;
 }

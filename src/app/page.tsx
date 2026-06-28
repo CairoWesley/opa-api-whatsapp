@@ -12,7 +12,7 @@ type Client = {
 type ResourceMeta = { key: string; filters: string[] };
 type ApiToken = { id: string; name: string; client_id: string | null; token_prefix: string; scopes: string[]; active: boolean; created_at: string; last_used_at: string | null };
 type SyncLog = { id: string; client_id: string; resource: string; status: string; records_upserted: number; error: string | null; started_at: string; finished_at: string | null };
-type View = "dashboard" | "clientes" | "dados" | "tokens" | "historico" | "docs";
+type View = "dashboard" | "clientes" | "dados" | "tokens" | "historico" | "config" | "docs";
 
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleString("pt-BR") : "—");
 
@@ -62,6 +62,9 @@ export default function AdminPage() {
   // dashboard
   const [overview, setOverview] = useState<any>(null);
 
+  // configurações
+  const [settings, setSettings] = useState<any>(null);
+
   const notify = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); };
 
   const api = useCallback(async (path: string, opts: RequestInit = {}) => {
@@ -80,6 +83,11 @@ export default function AdminPage() {
     setLogs((await api(`/sync/logs${qs}`)).logs);
   }, [api]);
   const loadOverview = useCallback(async () => setOverview(await api("/stats/overview")), [api]);
+  const loadSettings = useCallback(async () => setSettings(await api("/settings")), [api]);
+  const saveSettings = async (patch: any) => {
+    try { setSettings(await api("/settings", { method: "PUT", body: JSON.stringify(patch) })); notify("Configurações salvas"); }
+    catch (e) { notify((e as Error).message, false); }
+  };
   const loadDocList = useCallback(async () => { const r = await api("/docs"); setDocList(r.docs); return r.docs as { slug: string; title: string }[]; }, [api]);
   const openDoc = useCallback(async (slug: string) => {
     setDocLoading(true); setDocSlug(slug);
@@ -117,6 +125,7 @@ export default function AdminPage() {
   useEffect(() => { if (authed) { loadClients().catch((e) => notify(e.message, false)); loadResources().catch(() => {}); } }, [authed, loadClients, loadResources]);
   useEffect(() => { if (authed && view === "tokens") loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
   useEffect(() => { if (authed && view === "dashboard") { loadTokens().catch(() => {}); loadOverview().catch((e) => notify(e.message, false)); } }, [authed, view, loadTokens, loadOverview]);
+  useEffect(() => { if (authed && view === "config") loadSettings().catch((e) => notify(e.message, false)); }, [authed, view, loadSettings]);
   useEffect(() => { if (authed && view === "historico") loadLogs(logClient).catch((e) => notify(e.message, false)); }, [authed, view, logClient, loadLogs]);
   useEffect(() => { if (authed && view === "docs" && docList.length === 0) loadDocList().then((d) => d[0] && openDoc(d[0].slug)).catch(() => {}); }, [authed, view, docList.length, loadDocList, openDoc]);
 
@@ -200,15 +209,17 @@ export default function AdminPage() {
     { v: "dados", ico: "🔎", label: "Explorar dados" },
     { v: "tokens", ico: "🔑", label: "Tokens de API" },
     { v: "historico", ico: "🕑", label: "Histórico de sync" },
+    { v: "config", ico: "⚙️", label: "Configurações" },
     { v: "docs", ico: "📚", label: "Documentação" },
   ];
-  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", tokens: "Tokens de API", historico: "Histórico de sincronização", docs: "Documentação" };
+  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", tokens: "Tokens de API", historico: "Histórico de sincronização", config: "Configurações", docs: "Documentação" };
   const subs: Record<View, string> = {
     dashboard: "Visão geral por cliente — status, tokens e rotas acessíveis",
     clientes: "Tenants OPA Suite — criar, editar, sincronizar",
     dados: "Leitura paginada e filtrável dos dados extraídos",
     tokens: "Tokens por cliente para acesso à API",
     historico: "Status e motivos de erro por recurso",
+    config: "Agendador — re-sync automático e revalidação de token",
     docs: "Documentação do projeto e da API",
   };
 
@@ -239,6 +250,7 @@ export default function AdminPage() {
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "historico" && <HistoricoView {...{ logs, clients, logClient, setLogClient, loadLogs }} />}
+          {view === "config" && <ConfigView {...{ settings, saveSettings }} />}
           {view === "docs" && <DocsView {...{ docList, docSlug, docHtml, docLoading, openDoc }} />}
         </div>
       </div>
@@ -552,6 +564,34 @@ function HistoricoView(p: any) {
             {logs.length === 0 && <tr><td colSpan={6} className="empty">Sem registros de sync ainda.</td></tr>}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+function ConfigView(p: any) {
+  const { settings: s, saveSettings } = p;
+  if (!s) return <div className="empty card">Carregando…</div>;
+  return (
+    <section className="card" style={{ maxWidth: 620 }}>
+      <div className="card-head"><h2>Agendador interno</h2></div>
+      <p className="card-desc">O worker roda um tick periódico. Aqui você liga/desliga e ajusta o comportamento — vale na hora.</p>
+
+      <label className="chk" style={{ marginBottom: 14 }}>
+        <input type="checkbox" checked={!!s.auto_resync_enabled} onChange={(e) => saveSettings({ auto_resync_enabled: e.target.checked })} />
+        <span><b>Re-sync automático</b> — re-enfileira clientes ativos quando o sync programado (intervalo por cliente) vence.</span>
+      </label>
+
+      <label className="chk" style={{ marginBottom: 14 }}>
+        <input type="checkbox" checked={!!s.auto_revalidate_enabled} onChange={(e) => saveSettings({ auto_revalidate_enabled: e.target.checked })} />
+        <span><b>Revalidação automática de token</b> — testa cada rota e (des)bloqueia conforme o acesso do token.</span>
+      </label>
+
+      <div style={{ maxWidth: 240 }}>
+        <label>Revalidar a cada (horas)</label>
+        <input type="number" min={1} defaultValue={s.revalidate_hours}
+          onBlur={(e) => saveSettings({ revalidate_hours: Number(e.target.value) })} />
+        <p className="muted" style={{ marginTop: 6 }}>Intervalo mínimo entre revalidações de um cliente.</p>
       </div>
     </section>
   );

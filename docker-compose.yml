@@ -35,6 +35,7 @@ services:
       - ./supabase/migrations/0006_client_config_token_scope.sql:/docker-entrypoint-initdb.d/01e-config.sql:ro
       - ./supabase/migrations/0007_resource_access.sql:/docker-entrypoint-initdb.d/01f-access.sql:ro
       - ./supabase/migrations/0008_sync_runs.sql:/docker-entrypoint-initdb.d/01g-runs.sql:ro
+      - ./supabase/migrations/0009_settings.sql:/docker-entrypoint-initdb.d/01h-settings.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -101,6 +102,7 @@ services:
     environment:
       # App fala com o Supabase local via Kong.
       SUPABASE_URL: http://kong:8000
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres}
       SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M}
       APP_ADMIN_TOKEN: ${APP_ADMIN_TOKEN:-local-admin-token}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=}
@@ -133,6 +135,7 @@ services:
         condition: service_started
     environment:
       SUPABASE_URL: http://kong:8000
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres}
       SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M}
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=}
       OPA_PAGE_SIZE: ${OPA_PAGE_SIZE:-500}
@@ -179,6 +182,7 @@ services:
       DEFAULT_ORGANIZATION_NAME: Local
       DEFAULT_PROJECT_NAME: opa-api-whatsapp
       SUPABASE_URL: http://kong:8000
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres}
       SUPABASE_PUBLIC_URL: http://localhost:8000
       SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogImFub24iLAogICJpc3MiOiAic3VwYWJhc2UiLAogICJpYXQiOiAxNzE1MDUwODAwLAogICJleHAiOiAxODcyODE3MjAwCn0.JxiPF6G9sDr6KKS4f8UHS9sCtOUtiD4PK4Wq5BsyRck}
       SUPABASE_SERVICE_KEY: ${SERVICE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M}

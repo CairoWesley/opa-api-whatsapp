@@ -1,5 +1,5 @@
-// Acesso de dados ao Supabase (CRUD de clientes, upsert de documentos, logs).
-import { supabaseAdmin } from "./supabase";
+// Acesso de dados — DIRETO no Postgres (driver pg). Sem Kong/PostgREST.
+import { q, q1, exec } from "./db";
 import { config } from "./config";
 import { hashPassword } from "./session";
 import { tableFor, typedColumns, mapTypedColumns } from "./mappers";
@@ -8,295 +8,220 @@ import type { ClientRow, ClientSecretRow } from "./types";
 import type { OpaDoc } from "./opa-client";
 
 export type DashUser = { id: string; username: string; password_hash: string; active: boolean };
+export type DocFilter = { field: string; op: string; value: string };
 
-const CLIENT_COLUMNS =
+const CLIENT_COLS =
   "id, slug, name, base_url, company_id, active, insecure_tls, page_size, timeout_ms, " +
   "sync_interval_minutes, lookback_days, blocked_resources, resource_access, extra_filters, " +
   "last_synced_at, last_sync_status, last_sync_error, created_at, updated_at";
 
 const nowIso = () => new Date().toISOString();
+const jb = (o: unknown) => JSON.stringify(o ?? {});
 
 // ── Clientes ────────────────────────────────────────────────────────────────
 export async function listClients(active?: boolean): Promise<ClientRow[]> {
-  let q = supabaseAdmin().from("opa_clients").select(CLIENT_COLUMNS).order("created_at");
-  if (active !== undefined) q = q.eq("active", active);
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data ?? []) as unknown as ClientRow[];
+  if (active === undefined) return q<ClientRow>(`select ${CLIENT_COLS} from opa_clients order by created_at`);
+  return q<ClientRow>(`select ${CLIENT_COLS} from opa_clients where active = $1 order by created_at`, [active]);
 }
 
 export async function getClient(id: string): Promise<ClientRow | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("opa_clients")
-    .select(CLIENT_COLUMNS)
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as unknown as ClientRow) ?? null;
+  return q1<ClientRow>(`select ${CLIENT_COLS} from opa_clients where id = $1`, [id]);
 }
 
 export async function getClientSecret(id: string): Promise<ClientSecretRow | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("opa_clients")
-    .select(CLIENT_COLUMNS + ", token_encrypted")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as unknown as ClientSecretRow) ?? null;
+  return q1<ClientSecretRow>(`select ${CLIENT_COLS}, token_encrypted from opa_clients where id = $1`, [id]);
 }
 
-export async function insertClient(row: Record<string, unknown>): Promise<ClientRow> {
-  const { data, error } = await supabaseAdmin()
-    .from("opa_clients")
-    .insert(row)
-    .select(CLIENT_COLUMNS)
-    .single();
-  if (error) throw error;
-  return data as unknown as ClientRow;
+export async function insertClient(row: Record<string, any>): Promise<ClientRow> {
+  const r = await q1<ClientRow>(
+    `insert into opa_clients
+       (slug, name, base_url, token_encrypted, company_id, active, insecure_tls,
+        page_size, timeout_ms, sync_interval_minutes, lookback_days, extra_filters)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     returning ${CLIENT_COLS}`,
+    [row.slug, row.name, row.base_url, row.token_encrypted, row.company_id ?? null,
+     row.active ?? true, row.insecure_tls ?? false, row.page_size ?? null, row.timeout_ms ?? null,
+     row.sync_interval_minutes ?? 30, row.lookback_days ?? 30, jb(row.extra_filters)],
+  );
+  return r as ClientRow;
 }
 
-export async function updateClient(
-  id: string,
-  patch: Record<string, unknown>,
-): Promise<ClientRow | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("opa_clients")
-    .update(patch)
-    .eq("id", id)
-    .select(CLIENT_COLUMNS)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as unknown as ClientRow) ?? null;
+const JSONB_KEYS = new Set(["extra_filters", "resource_access"]);
+export async function updateClient(id: string, patch: Record<string, any>): Promise<ClientRow | null> {
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return getClient(id);
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+  for (const k of keys) {
+    sets.push(`${k} = $${i++}`);
+    params.push(JSONB_KEYS.has(k) ? jb(patch[k]) : patch[k]);
+  }
+  params.push(id);
+  return q1<ClientRow>(`update opa_clients set ${sets.join(", ")} where id = $${i} returning ${CLIENT_COLS}`, params);
 }
 
 export async function deleteClient(id: string): Promise<void> {
-  const { error } = await supabaseAdmin().from("opa_clients").delete().eq("id", id);
-  if (error) throw error;
+  await exec(`delete from opa_clients where id = $1`, [id]);
+}
+
+export async function setSyncState(id: string, status: string, errorMsg: string | null = null, markSynced = false): Promise<void> {
+  if (markSynced)
+    await exec(`update opa_clients set last_sync_status=$1, last_sync_error=$2, last_synced_at=now() where id=$3`, [status, errorMsg, id]);
+  else
+    await exec(`update opa_clients set last_sync_status=$1, last_sync_error=$2 where id=$3`, [status, errorMsg, id]);
 }
 
 export async function setBlockedResources(id: string, blocked: string[]): Promise<void> {
-  const { error } = await supabaseAdmin().from("opa_clients").update({ blocked_resources: blocked }).eq("id", id);
-  if (error) throw error;
+  await exec(`update opa_clients set blocked_resources=$1 where id=$2`, [blocked, id]);
 }
 
-export async function setResourceAccess(
-  id: string,
-  access: Record<string, { ok: boolean; code: number; at: string }>,
-  blocked: string[],
-): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("opa_clients")
-    .update({ resource_access: access, blocked_resources: blocked })
-    .eq("id", id);
-  if (error) throw error;
+export async function setResourceAccess(id: string, access: Record<string, unknown>, blocked: string[]): Promise<void> {
+  await exec(`update opa_clients set resource_access=$1, blocked_resources=$2 where id=$3`, [jb(access), blocked, id]);
 }
 
-export async function setSyncState(
-  id: string,
-  status: string,
-  errorMsg: string | null = null,
-  markSynced = false,
-): Promise<void> {
-  const patch: Record<string, unknown> = { last_sync_status: status, last_sync_error: errorMsg };
-  if (markSynced) patch.last_synced_at = nowIso();
-  const { error } = await supabaseAdmin().from("opa_clients").update(patch).eq("id", id);
-  if (error) throw error;
-}
-
-// ── Documentos (uma tabela por recurso, colunas tipadas + raw) ───────────────
-export async function upsertDocuments(
-  clientId: string,
-  resource: string,
-  docs: OpaDoc[],
-): Promise<number> {
+// ── Documentos (upsert direto, lote único) ──────────────────────────────────
+export async function upsertDocuments(clientId: string, resource: string, docs: OpaDoc[]): Promise<number> {
   if (docs.length === 0) return 0;
+  const table = tableFor(resource);
+  const typed = typedColumns(resource);
+  const cols = ["client_id", "external_id", ...typed, "raw", "synced_at"];
   const synced = nowIso();
-  const rows = docs
-    .map((d) => {
-      const externalId = String(d._id ?? d.id ?? "");
-      if (!externalId) return null;
-      return {
-        client_id: clientId,
-        external_id: externalId,
-        ...mapTypedColumns(resource, d),
-        raw: d,
-        synced_at: synced,
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
+
+  const rows: unknown[][] = [];
+  for (const d of docs) {
+    const externalId = String(d._id ?? d.id ?? "");
+    if (!externalId) continue;
+    const mapped = mapTypedColumns(resource, d);
+    rows.push([clientId, externalId, ...typed.map((k) => mapped[k]), JSON.stringify(d), synced]);
+  }
   if (rows.length === 0) return 0;
-  const { error } = await supabaseAdmin()
-    .from(tableFor(resource))
-    .upsert(rows, { onConflict: "client_id,external_id" });
-  if (error) throw error;
+
+  const n = cols.length;
+  const valuesSql = rows.map((_, ri) => `(${cols.map((_, ci) => `$${ri * n + ci + 1}`).join(",")})`).join(",");
+  const updateSet = [...typed, "raw", "synced_at"].map((c) => `${c}=excluded.${c}`).join(", ");
+  const sql = `insert into ${table} (${cols.join(",")}) values ${valuesSql}
+               on conflict (client_id, external_id) do update set ${updateSet}`;
+  await exec(sql, rows.flat());
   return rows.length;
 }
 
-export type DocFilter = { field: string; op: string; value: string };
-
-// Colunas-base presentes em toda tabela de recurso.
+// Colunas-base de toda tabela de recurso.
 const BASE_COLUMNS = new Set(["external_id", "synced_at", "client_id", "id"]);
-
-// Decide o alvo do filtro/ordenação:
-//   - coluna tipada / base → a própria coluna (rápido, indexado)
-//   - campo do raw (JSON) → raw->>'campo'; caminho aninhado a.b.c → raw->a->b->>c
 function colRef(resource: string, field: string): string {
   if (BASE_COLUMNS.has(field) || typedColumns(resource).includes(field)) return field;
-  if (!field.includes(".")) return `raw->>${field}`;
+  if (!field.includes(".")) return `raw->>'${field}'`;
   const parts = field.split(".");
   const last = parts.pop();
-  return `raw->${parts.join("->")}->>${last}`;
+  return `raw->${parts.map((p) => `'${p}'`).join("->")}->>'${last}'`;
 }
 
 export async function queryDocuments(
-  clientId: string | null,
-  resource: string,
-  limit: number,
-  offset: number,
-  orderDesc: boolean,
-  filters: DocFilter[] = [],
-  orderBy = "synced_at",
+  clientId: string | null, resource: string, limit: number, offset: number,
+  orderDesc: boolean, filters: DocFilter[] = [], orderBy = "synced_at",
 ): Promise<{ rows: unknown[]; total: number }> {
-  let q = supabaseAdmin()
-    .from(tableFor(resource))
-    .select("*", { count: "exact" });
-  if (clientId) q = q.eq("client_id", clientId);
-
+  const table = tableFor(resource);
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  let i = 1;
+  if (clientId) { conds.push(`client_id = $${i++}`); params.push(clientId); }
   for (const f of filters) {
     const col = colRef(resource, f.field);
-    switch (f.op) {
-      case "eq": q = q.eq(col, f.value); break;
-      case "neq": q = q.neq(col, f.value); break;
-      case "like":
-      case "ilike": q = q.ilike(col, `%${f.value}%`); break;
-      case "gt": q = q.gt(col, f.value); break;
-      case "gte": q = q.gte(col, f.value); break;
-      case "lt": q = q.lt(col, f.value); break;
-      case "lte": q = q.lte(col, f.value); break;
-      default: break;
-    }
+    if (f.op === "eq") { conds.push(`${col} = $${i++}`); params.push(f.value); }
+    else if (f.op === "neq") { conds.push(`${col} <> $${i++}`); params.push(f.value); }
+    else if (f.op === "like" || f.op === "ilike") { conds.push(`${col} ilike $${i++}`); params.push(`%${f.value}%`); }
+    else if (f.op === "gt") { conds.push(`${col} > $${i++}`); params.push(f.value); }
+    else if (f.op === "gte") { conds.push(`${col} >= $${i++}`); params.push(f.value); }
+    else if (f.op === "lt") { conds.push(`${col} < $${i++}`); params.push(f.value); }
+    else if (f.op === "lte") { conds.push(`${col} <= $${i++}`); params.push(f.value); }
   }
-
+  const where = conds.length ? `where ${conds.join(" and ")}` : "";
+  const total = (await q1<{ n: number }>(`select count(*)::int as n from ${table} ${where}`, params))?.n ?? 0;
   const orderCol = colRef(resource, orderBy);
-  const { data, error, count } = await q
-    .order(orderCol, { ascending: !orderDesc })
-    .range(offset, offset + limit - 1);
-  if (error) throw error;
-  return { rows: data ?? [], total: count ?? 0 };
+  const rows = await q(
+    `select * from ${table} ${where} order by ${orderCol} ${orderDesc ? "desc" : "asc"} nulls last limit $${i++} offset $${i++}`,
+    [...params, limit, offset],
+  );
+  return { rows, total };
 }
 
 // ── Usuários do dashboard ───────────────────────────────────────────────────
 export async function getUserByUsername(username: string): Promise<DashUser | null> {
-  const { data, error } = await supabaseAdmin()
-    .from("dashboard_users")
-    .select("id, username, password_hash, active")
-    .eq("username", username)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as unknown as DashUser) ?? null;
+  return q1<DashUser>(`select id, username, password_hash, active from dashboard_users where username = $1`, [username]);
 }
-
 export async function countUsers(): Promise<number> {
-  const { count, error } = await supabaseAdmin()
-    .from("dashboard_users")
-    .select("id", { count: "exact", head: true });
-  if (error) throw error;
-  return count ?? 0;
+  return (await q1<{ n: number }>(`select count(*)::int as n from dashboard_users`))?.n ?? 0;
 }
-
 export async function createUser(username: string, passwordHash: string): Promise<void> {
-  const { error } = await supabaseAdmin()
-    .from("dashboard_users")
-    .insert({ username, password_hash: passwordHash });
-  if (error) throw error;
+  await exec(`insert into dashboard_users (username, password_hash) values ($1,$2)`, [username, passwordHash]);
 }
-
 export async function touchUserLogin(id: string): Promise<void> {
-  await supabaseAdmin().from("dashboard_users").update({ last_login_at: nowIso() }).eq("id", id);
+  await exec(`update dashboard_users set last_login_at = now() where id = $1`, [id]);
 }
-
-// Cria o 1º admin a partir das env DASHBOARD_DEFAULT_* se a tabela estiver vazia.
-// Idempotente e seguro: só age quando não há nenhum usuário.
 export async function ensureSeedUser(): Promise<void> {
   const user = config.defaultDashUser();
   const pass = config.defaultDashPassword();
   if (!user || !pass) return;
   if ((await countUsers()) > 0) return;
-  try {
-    await createUser(user, hashPassword(pass));
-  } catch {
-    /* corrida: outro processo semeou primeiro — ignora */
-  }
+  try { await createUser(user, hashPassword(pass)); } catch { /* corrida */ }
 }
 
-// ── Sync runs (histórico por execução) + estatísticas ───────────────────────
-export async function insertSyncRun(row: Record<string, unknown>): Promise<void> {
-  const { error } = await supabaseAdmin().from("sync_runs").insert(row);
-  if (error) throw error;
+// ── Sync runs + estatísticas ────────────────────────────────────────────────
+export async function insertSyncRun(r: Record<string, any>): Promise<void> {
+  await exec(
+    `insert into sync_runs (client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [r.client_id, r.status, r.is_full ?? false, r.resources_count ?? 0, r.ok_count ?? 0, r.error_count ?? 0, r.total_upserted ?? 0, r.started_at, r.finished_at],
+  );
 }
-
 export async function listRecentRuns(limit = 20): Promise<any[]> {
-  const { data, error } = await supabaseAdmin()
-    .from("sync_runs")
-    .select("id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at")
-    .order("started_at", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as any[];
+  return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
+            from sync_runs order by started_at desc limit $1`, [limit]);
 }
-
-// Todas as runs (campos leves) p/ agregação no servidor.
 export async function allRunsLite(): Promise<{ client_id: string; status: string; started_at: string; total_upserted: number }[]> {
-  const { data, error } = await supabaseAdmin()
-    .from("sync_runs")
-    .select("client_id, status, started_at, total_upserted");
-  if (error) throw error;
-  return (data ?? []) as any[];
+  return q(`select client_id, status, started_at, total_upserted from sync_runs`);
 }
-
-// Contagem de linhas por recurso (cada tabela). head:true = sem trazer dados.
 export async function perResourceCounts(): Promise<Record<string, number>> {
   const entries = await Promise.all(
     RESOURCE_KEYS.map(async (r) => {
-      const { count } = await supabaseAdmin().from(tableFor(r)).select("id", { count: "exact", head: true });
-      return [r, count ?? 0] as const;
+      const n = (await q1<{ n: number }>(`select count(*)::int as n from ${tableFor(r)}`))?.n ?? 0;
+      return [r, n] as const;
     }),
   );
   return Object.fromEntries(entries);
 }
-
 export async function tokenCounts(): Promise<{ total: number; active: number }> {
-  const { count: total } = await supabaseAdmin().from("api_tokens").select("id", { count: "exact", head: true });
-  const { count: active } = await supabaseAdmin().from("api_tokens").select("id", { count: "exact", head: true }).eq("active", true);
-  return { total: total ?? 0, active: active ?? 0 };
+  const total = (await q1<{ n: number }>(`select count(*)::int as n from api_tokens`))?.n ?? 0;
+  const active = (await q1<{ n: number }>(`select count(*)::int as n from api_tokens where active`))?.n ?? 0;
+  return { total, active };
 }
 
 // ── Logs ────────────────────────────────────────────────────────────────────
 export async function listSyncLogs(clientId: string | null, limit = 100): Promise<unknown[]> {
-  let q = supabaseAdmin()
-    .from("opa_sync_logs")
-    .select("id, client_id, resource, status, records_upserted, error, started_at, finished_at")
-    .order("started_at", { ascending: false })
-    .limit(Math.min(Math.max(limit, 1), 500));
-  if (clientId) q = q.eq("client_id", clientId);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data ?? [];
+  const lim = Math.min(Math.max(limit, 1), 500);
+  if (clientId)
+    return q(`select id, client_id, resource, status, records_upserted, error, started_at, finished_at
+              from opa_sync_logs where client_id=$1 order by started_at desc limit $2`, [clientId, lim]);
+  return q(`select id, client_id, resource, status, records_upserted, error, started_at, finished_at
+            from opa_sync_logs order by started_at desc limit $1`, [lim]);
+}
+export async function insertSyncLog(clientId: string, resource: string, status: string, records: number, errorMsg: string | null): Promise<void> {
+  await exec(
+    `insert into opa_sync_logs (client_id, resource, status, records_upserted, error, finished_at)
+     values ($1,$2,$3,$4,$5,now())`,
+    [clientId, resource, status, records, errorMsg],
+  );
 }
 
-export async function insertSyncLog(
-  clientId: string,
-  resource: string,
-  status: string,
-  records: number,
-  errorMsg: string | null,
-): Promise<void> {
-  await supabaseAdmin().from("opa_sync_logs").insert({
-    client_id: clientId,
-    resource,
-    status,
-    records_upserted: records,
-    error: errorMsg,
-    finished_at: nowIso(),
-  });
+// ── Settings (config global do painel) ──────────────────────────────────────
+export async function getSettings(): Promise<Record<string, any>> {
+  const rows = await q<{ key: string; value: any }>(`select key, value from app_settings`);
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+export async function setSetting(key: string, value: unknown): Promise<void> {
+  await exec(
+    `insert into app_settings (key, value, updated_at) values ($1,$2,now())
+     on conflict (key) do update set value=excluded.value, updated_at=now()`,
+    [key, jb(value)],
+  );
 }

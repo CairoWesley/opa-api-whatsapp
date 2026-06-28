@@ -19,30 +19,38 @@ function lastRevalidatedMs(access: Record<string, { at: string }> | null | undef
 }
 
 export async function runScheduler(): Promise<{ enqueued: string[]; revalidated: string[] }> {
-  const clients = await repo.listClients(true); // só ATIVOS
-  const now = Date.now();
-  const revalidateMs = config.revalidateHours() * 3600_000;
+  // Config vinda do PAINEL (app_settings), com fallback p/ env.
+  const s = await repo.getSettings().catch(() => ({} as Record<string, any>));
+  const resyncOn = s.auto_resync_enabled ?? true;
+  const revalOn = s.auto_revalidate_enabled ?? true;
+  const revalidateMs = Number(s.revalidate_hours ?? config.revalidateHours()) * 3600_000;
 
   const enqueued: string[] = [];
   const revalidated: string[] = [];
+  if (!resyncOn && !revalOn) return { enqueued, revalidated };
+
+  const clients = await repo.listClients(true); // só ATIVOS
+  const now = Date.now();
 
   for (const c of clients) {
     // 1) Re-sync automático se vencido (sync programado por sync_interval_minutes).
-    const intervalMs = (c.sync_interval_minutes || 30) * 60_000;
-    const lastSync = c.last_synced_at ? Date.parse(c.last_synced_at) : 0;
-    const due = !lastSync || now - lastSync >= intervalMs;
-    // não re-enfileira enquanto já está rodando/na fila
-    const busy = c.last_sync_status === "running" || c.last_sync_status === "queued";
-    if (due && !busy) {
-      await enqueueSync({ clientId: c.id }).catch(() => {});
-      enqueued.push(c.slug);
+    if (resyncOn) {
+      const intervalMs = (c.sync_interval_minutes || 30) * 60_000;
+      const lastSync = c.last_synced_at ? Date.parse(c.last_synced_at) : 0;
+      const due = !lastSync || now - lastSync >= intervalMs;
+      const busy = c.last_sync_status === "running" || c.last_sync_status === "queued";
+      if (due && !busy) {
+        await enqueueSync({ clientId: c.id }).catch(() => {});
+        enqueued.push(c.slug);
+      }
     }
-
     // 2) Revalida o token se a validação está velha (ou nunca foi feita).
-    const lastVal = lastRevalidatedMs(c.resource_access);
-    if (!lastVal || now - lastVal >= revalidateMs) {
-      await revalidateClient(c.id).catch(() => {});
-      revalidated.push(c.slug);
+    if (revalOn) {
+      const lastVal = lastRevalidatedMs(c.resource_access);
+      if (!lastVal || now - lastVal >= revalidateMs) {
+        await revalidateClient(c.id).catch(() => {});
+        revalidated.push(c.slug);
+      }
     }
   }
   return { enqueued, revalidated };
