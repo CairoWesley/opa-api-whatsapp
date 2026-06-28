@@ -234,7 +234,7 @@ export default function AdminPage() {
           <div><h1>{titles[view]}</h1><div className="sub">{subs[view]}</div></div>
         </div>
         <div className="content">
-          {view === "dashboard" && <DashboardView {...{ overview, clients, setView, revalidate, syncNow, loadOverview }} />}
+          {view === "dashboard" && <DashboardView {...{ overview, clients, setView, setEditing, revalidate, syncNow, loadOverview }} />}
           {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
@@ -251,9 +251,10 @@ export default function AdminPage() {
 const RESOURCE_LIST = ["etiquetas","usuarios","departamentos","motivos","canais","templates","clientes","contatos","periodos","atendimentos","mensagens"];
 
 function DashboardView(p: any) {
-  const { overview: o, clients, revalidate, syncNow, loadOverview } = p;
+  const { overview: o, clients, setView, setEditing, revalidate, syncNow, loadOverview } = p;
   if (!o) return <div className="empty card">Carregando estatísticas…</div>;
   const slugOf = (id: string) => clients.find((c: Client) => c.id === id)?.slug || "—";
+  const editClient = (id: string) => { const c = clients.find((x: Client) => x.id === id); if (c) { setEditing(c); setView("clientes"); } };
   const maxRec = Math.max(1, ...Object.values(o.records.by_resource as Record<string, number>));
   const q = o.queue || {};
   return (
@@ -320,7 +321,12 @@ function DashboardView(p: any) {
                   <td>{c.blocked > 0 ? <span className="pill off">{c.blocked}</span> : "—"}</td>
                   <td>{c.tokens}</td>
                   <td className="muted">{fmt(c.last_synced_at)}</td>
-                  <td className="actions"><button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button><button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar</button></td>
+                  <td className="actions">
+                    <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>
+                    <button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar</button>
+                    <button className="ghost xs" onClick={() => editClient(c.id)}>Editar</button>
+                    <button className="ghost xs" onClick={() => setView("tokens")}>Tokens</button>
+                  </td>
                 </tr>
               ))}
               {o.per_client.length === 0 && <tr><td colSpan={10} className="empty">Nenhum cliente.</td></tr>}

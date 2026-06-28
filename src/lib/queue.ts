@@ -43,6 +43,19 @@ export async function enqueueSync(data: SyncJobData): Promise<string> {
   return job.id ?? "";
 }
 
+// Agenda o tick do scheduler (job repetível). Cluster-safe: o BullMQ dispara
+// só 1 tick por intervalo mesmo com vários workers.
+export async function scheduleTick(everySec: number): Promise<void> {
+  // limpa repetíveis antigos (intervalos trocados) p/ não acumular
+  const reps = await queue().getRepeatableJobs().catch(() => []);
+  for (const r of reps) if (r.name === "tick") await queue().removeRepeatableByKey(r.key).catch(() => {});
+  await queue().add("tick", {} as SyncJobData, {
+    repeat: { every: everySec * 1000 },
+    removeOnComplete: true,
+    removeOnFail: true,
+  });
+}
+
 export async function getJobStatus(id: string) {
   const job = await queue().getJob(id);
   if (!job) return null;

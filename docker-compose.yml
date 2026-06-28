@@ -70,6 +70,8 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      # Evita o warn "request body buffered to temp file" nos lotes grandes de upsert
+      KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 16m
     volumes:
       - ./docker/kong/kong.yml:/home/kong/kong.yml:ro
 
@@ -140,6 +142,10 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://:localredispass@redis:6379}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
       WORKER_RESOURCE_CONCURRENCY: ${WORKER_RESOURCE_CONCURRENCY:-3}
+      # Agendador interno: re-sync automático de ativos + revalidação de token
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      SCHEDULER_INTERVAL_SEC: ${SCHEDULER_INTERVAL_SEC:-60}
+      REVALIDATE_HOURS: ${REVALIDATE_HOURS:-12}
 
   # ── Supabase Studio (opcional): docker compose --profile studio up -d ──────────
   meta:

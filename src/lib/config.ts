@@ -22,6 +22,10 @@ export const config = {
   sessionTtlHours: () => Number(process.env.SESSION_TTL_HOURS ?? 12),
   // Quantos recursos de um mesmo job rodam em paralelo (threads lógicas).
   resourceConcurrency: () => Number(process.env.WORKER_RESOURCE_CONCURRENCY ?? 3),
+  // Agendador interno (worker).
+  schedulerEnabled: () => (process.env.SCHEDULER_ENABLED ?? "true") !== "false",
+  schedulerIntervalSec: () => Number(process.env.SCHEDULER_INTERVAL_SEC ?? 60),
+  revalidateHours: () => Number(process.env.REVALIDATE_HOURS ?? 12),
   // Seed do 1º usuário admin do dashboard (cria se a tabela estiver vazia).
   defaultDashUser: () => process.env.DASHBOARD_DEFAULT_USER || "",
   defaultDashPassword: () => process.env.DASHBOARD_DEFAULT_PASSWORD || "",
