@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 const MAX_LIMIT = 1000;
 const OPS = new Set(["eq", "neq", "like", "ilike", "gt", "gte", "lt", "lte"]);
-const FIELD_RE = /^[a-zA-Z0-9_]+$/;
+// Campo: coluna tipada OU campo do raw, inclusive caminho aninhado (a.b.c).
+const FIELD_RE = /^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/;
 
 // GET /api/data/:resource?client_id=&limit=&offset=&page=&order_desc=&order_by=
 //   &filter=campo:op:valor   (repetível)

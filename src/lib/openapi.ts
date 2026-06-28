@@ -20,22 +20,23 @@ export function buildOpenApi(serverUrl?: string) {
         "### Paginação\n" +
         "`limit` (máx 1000) + `page` (1-based) **ou** `offset`. A resposta traz " +
         "`pagination` com `total`, `page`, `has_more`.\n\n" +
+        "O **token já define o cliente** — não envie `client_id`.\n\n" +
         "### Filtros (parâmetro `filter`, repetível)\n" +
-        "Formato: `filter=campo:operador:valor`. Repita o parâmetro para combinar " +
-        "(AND). Campos do documento são consultados no JSON (`raw->>'campo'`); " +
-        "`external_id`, `synced_at` e `client_id` são colunas.\n\n" +
-        "**Operadores:** `eq` (igual), `neq` (diferente), `like`/`ilike` (contém, " +
-        "case-insensitive), `gt`, `gte`, `lt`, `lte` (maior/menor — funciona com " +
-        "datas ISO e números em texto).\n\n" +
+        "Formato: `filter=campo:operador:valor`. Repita para combinar (AND).\n\n" +
+        "**O campo pode ser:**\n" +
+        "- uma **coluna tipada** (transformação automática de campos comuns): " +
+        "`status`, `protocolo`, `departamento`, `aberto_em`, `encerrado_em`, `nome`, " +
+        "`telefone`, `email`, `atendimento_id`, etc. (rápido, indexado).\n" +
+        "- **qualquer campo do JSON** cru: `nomeDoCampo` → `raw->>'campo'`.\n" +
+        "- **campo aninhado** do JSON com ponto: `contato.nome` → `raw->contato->>nome`.\n\n" +
+        "**Operadores:** `eq`, `neq`, `like`/`ilike` (contém), `gt`, `gte`, `lt`, `lte`.\n\n" +
         "**Exemplos:**\n" +
-        "- Atendimentos de um cliente com status `aberto`:\n" +
-        "  `/api/data/atendimentos?client_id=<id>&filter=status:eq:aberto`\n" +
-        "- Protocolo que contém `2024`:\n" +
-        "  `/api/data/atendimentos?filter=protocolo:like:2024`\n" +
-        "- Sincronizados a partir de uma data:\n" +
-        "  `/api/data/atendimentos?filter=synced_at:gte:2026-06-01`\n" +
-        "- Combinando (status aberto **e** departamento Suporte):\n" +
-        "  `/api/data/atendimentos?filter=status:eq:aberto&filter=departamento:eq:Suporte`\n\n" +
+        "- Status aberto: `/api/data/atendimentos?filter=status:eq:aberto`\n" +
+        "- Protocolo contém 2024: `/api/data/atendimentos?filter=protocolo:like:2024`\n" +
+        "- Abertos a partir de uma data: `/api/data/atendimentos?filter=aberto_em:gte:2026-06-01`\n" +
+        "- Campo do JSON cru: `/api/data/atendimentos?filter=prioridade:eq:alta`\n" +
+        "- Campo aninhado do JSON: `/api/data/atendimentos?filter=contato.nome:ilike:silva`\n" +
+        "- Combinando: `?filter=status:eq:aberto&filter=departamento:eq:Suporte`\n\n" +
         "### Ordenação\n" +
         "`order_by=<campo>` (default `synced_at`) + `order_desc=true|false`.",
     },
@@ -91,7 +92,6 @@ export function buildOpenApi(serverUrl?: string) {
           summary: "Lê um recurso (paginado + filtrável + cache)",
           parameters: [
             { name: "resource", in: "path", required: true, schema: { type: "string", enum: RESOURCE_KEYS } },
-            { name: "client_id", in: "query", schema: { type: "string" }, description: "Filtra por cliente (UUID)" },
             { name: "limit", in: "query", schema: { type: "integer", default: 100, maximum: 1000 } },
             { name: "page", in: "query", schema: { type: "integer" }, description: "1-based; precede offset" },
             { name: "offset", in: "query", schema: { type: "integer", default: 0 } },

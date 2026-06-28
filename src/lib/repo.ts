@@ -136,10 +136,15 @@ export type DocFilter = { field: string; op: string; value: string };
 // Colunas-base presentes em toda tabela de recurso.
 const BASE_COLUMNS = new Set(["external_id", "synced_at", "client_id", "id"]);
 
-// Decide se o filtro/ordenação bate numa COLUNA tipada (rápido) ou no raw->>.
+// Decide o alvo do filtro/ordenação:
+//   - coluna tipada / base → a própria coluna (rápido, indexado)
+//   - campo do raw (JSON) → raw->>'campo'; caminho aninhado a.b.c → raw->a->b->>c
 function colRef(resource: string, field: string): string {
   if (BASE_COLUMNS.has(field) || typedColumns(resource).includes(field)) return field;
-  return `raw->>${field}`;
+  if (!field.includes(".")) return `raw->>${field}`;
+  const parts = field.split(".");
+  const last = parts.pop();
+  return `raw->${parts.join("->")}->>${last}`;
 }
 
 export async function queryDocuments(

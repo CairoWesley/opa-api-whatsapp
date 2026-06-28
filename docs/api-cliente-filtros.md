@@ -1,25 +1,30 @@
 # API do Cliente — leitura e filtros
 
-API de **consumo** dos dados extraídos da OPA Suite. É a única superfície pública
-(documentada no Swagger em `/api-docs`). As rotas administrativas (cadastro de
-clientes, disparo de sync, etc.) ficam no **painel**, não nesta API.
+API de **consumo** dos dados extraídos da OPA Suite. Única superfície pública
+(Swagger em `/api-docs`). As rotas administrativas ficam no **painel**.
 
-## Autenticação
+## Autenticação — token por cliente
 
-Toda chamada exige o token:
+Cada token é **escopo de um único cliente**: só retorna os dados daquele cliente.
+**Não existe `client_id` na query** — o token já define o cliente.
 
 ```
 Authorization: Bearer <SEU_TOKEN>
 ```
 
-Valide o token e veja a que dados ele dá acesso:
+Também aceita **Basic auth** (token como senha):
 
 ```bash
-curl -X POST https://SEU_HOST/api/auth/validate \
-  -H 'Content-Type: application/json' -d '{"token":"<SEU_TOKEN>"}'
+curl -u api:<SEU_TOKEN> https://SEU_HOST/api/data/atendimentos
 ```
 
-## Endpoint principal
+Ver a que rotas o token tem acesso:
+
+```bash
+curl -X POST https://SEU_HOST/api/auth/validate -H 'Content-Type: application/json' -d '{"token":"<SEU_TOKEN>"}'
+```
+
+## Endpoint
 
 ```
 GET /api/data/{resource}
@@ -28,39 +33,41 @@ GET /api/data/{resource}
 `resource` ∈ `etiquetas, usuarios, departamentos, motivos, canais, templates,
 clientes, contatos, periodos, atendimentos, mensagens`.
 
-### Parâmetros
-
 | Parâmetro | Default | Descrição |
 |---|---|---|
-| `client_id` | — | filtra por um cliente (UUID); vazio = todos |
 | `limit` | 100 | itens por página (máx **1000**) |
-| `page` | — | página **1-based** (tem precedência sobre `offset`) |
+| `page` | — | página **1-based** (precede `offset`) |
 | `offset` | 0 | deslocamento manual |
-| `order_by` | `synced_at` | campo de ordenação (coluna ou campo do documento) |
+| `order_by` | `synced_at` | campo de ordenação (coluna, campo do raw ou caminho aninhado) |
 | `order_desc` | `true` | `true` = mais recentes primeiro |
-| `filter` | — | **repetível** — `campo:operador:valor` (ver abaixo) |
+| `filter` | — | **repetível** — `campo:operador:valor` |
 
-### Resposta
+## Transformação automática de campos
 
-```json
-{
-  "resource": "atendimentos",
-  "client_id": "…",
-  "filters": [{ "field": "status", "op": "eq", "value": "aberto" }],
-  "pagination": { "limit": 100, "offset": 0, "page": 1, "total": 1234, "returned": 100, "has_more": true },
-  "data": [ { "id": "…", "external_id": "…", "raw": { … }, "synced_at": "…" } ]
-}
-```
+Na extração, campos comuns são **promovidos automaticamente** para colunas
+tipadas (indexadas) — você filtra direto por elas. O documento inteiro continua
+em `raw`, então **qualquer outro campo** também é filtrável.
 
-Os campos do documento OPA ficam dentro de `raw`.
+| Recurso | Colunas tipadas (transformação automática) |
+|---|---|
+| `atendimentos` | `protocolo`, `status`, `departamento`, `canal`, `contato_id`, `avaliacao`, `aberto_em`, `encerrado_em` |
+| `contatos` | `nome`, `telefone`, `email` |
+| `mensagens` | `atendimento_id`, `tipo`, `conteudo`, `enviado_em` |
+| `clientes` | `nome`, `fantasia`, `cpf_cnpj`, `status` |
+| `usuarios` | `nome`, `status`, `tipo` |
+| `canais` | `nome`, `status`, `canal` |
+| `etiquetas`/`departamentos`/`motivos`/`periodos`/`templates` | `nome`/`motivo`/`atalho`… |
 
-## Filtros
+Colunas-base (toda tabela): `external_id`, `synced_at`.
 
-Formato: `filter=campo:operador:valor`. **Repita** o parâmetro para combinar
-condições (são unidas por **AND**).
+## Filtros — sintaxe
 
-- Campos do documento são consultados no JSON (`raw->>'campo'`).
-- `external_id`, `synced_at` e `client_id` são **colunas** (mais rápidos).
+`filter=campo:operador:valor` — repita o parâmetro para combinar (unidos por **AND**).
+
+**O `campo` pode ser:**
+1. uma **coluna tipada** → `status`, `protocolo`, `aberto_em`… (rápido)
+2. um **campo do JSON cru** (top-level) → `prioridade` vira `raw->>'prioridade'`
+3. um **campo aninhado do JSON** (com ponto) → `contato.nome` vira `raw->contato->>nome`
 
 ### Operadores
 
@@ -69,59 +76,94 @@ condições (são unidas por **AND**).
 | `eq` | igual | `status:eq:aberto` |
 | `neq` | diferente | `status:neq:fechado` |
 | `like` / `ilike` | contém (sem diferenciar maiúsc.) | `protocolo:like:2024` |
-| `gt` | maior que | `synced_at:gt:2026-06-01` |
-| `gte` | maior ou igual | `synced_at:gte:2026-06-01` |
-| `lt` | menor que | `synced_at:lt:2026-06-28` |
-| `lte` | menor ou igual | `synced_at:lte:2026-06-28` |
+| `gt` `gte` | maior / maior-ou-igual | `aberto_em:gte:2026-06-01` |
+| `lt` `lte` | menor / menor-ou-igual | `aberto_em:lt:2026-06-28` |
 
-> `gt/gte/lt/lte` comparam como texto — funciona para **datas ISO**
-> (`2026-06-01`) e números desde que estejam zero-padded. Para datas, use o
-> campo `synced_at` (quando o dado entrou) ou um campo de data do `raw`.
+## Exemplos
 
-### Exemplos
-
-Atendimentos abertos de um cliente:
+### Colunas tipadas
 ```
-GET /api/data/atendimentos?client_id=<id>&filter=status:eq:aberto
-```
+# atendimentos abertos
+GET /api/data/atendimentos?filter=status:eq:aberto
 
-Protocolo contém "2024", 50 por página, página 2:
-```
+# protocolo contém "2024", 50 por página, página 2
 GET /api/data/atendimentos?filter=protocolo:like:2024&limit=50&page=2
-```
 
-Sincronizados a partir de 01/06/2026, mais antigos primeiro:
-```
-GET /api/data/atendimentos?filter=synced_at:gte:2026-06-01&order_by=synced_at&order_desc=false
-```
+# abertos a partir de 01/06/2026, mais antigos primeiro
+GET /api/data/atendimentos?filter=aberto_em:gte:2026-06-01&order_by=aberto_em&order_desc=false
 
-Combinação (status aberto **E** departamento Suporte):
-```
-GET /api/data/atendimentos?filter=status:eq:aberto&filter=departamento:eq:Suporte
-```
+# encerrados num intervalo
+GET /api/data/atendimentos?filter=encerrado_em:gte:2026-06-01&filter=encerrado_em:lt:2026-07-01
 
-Contatos cujo telefone contém um DDD:
-```
+# departamento Suporte E status aberto
+GET /api/data/atendimentos?filter=departamento:eq:Suporte&filter=status:eq:aberto
+
+# contatos com telefone que contém DDD 11
 GET /api/data/contatos?filter=telefone:like:11
+
+# contato por e-mail exato
+GET /api/data/contatos?filter=email:eq:joao@empresa.com
+
+# mensagens de um atendimento
+GET /api/data/mensagens?filter=atendimento_id:eq:5f89...&order_by=enviado_em&order_desc=false
 ```
 
-### cURL
+### Filtrando o JSON cru (campos não promovidos)
+```
+# campo top-level do documento OPA que não virou coluna
+GET /api/data/atendimentos?filter=prioridade:eq:alta
+GET /api/data/atendimentos?filter=origem:eq:whatsapp
 
+# por sincronização (quando o dado entrou no nosso banco)
+GET /api/data/atendimentos?filter=synced_at:gte:2026-06-28
+```
+
+### Filtrando campo ANINHADO do JSON (com ponto)
+```
+# raw.contato.nome
+GET /api/data/atendimentos?filter=contato.nome:ilike:silva
+
+# raw.atendente.id
+GET /api/data/atendimentos?filter=atendente.id:eq:6511b0...
+
+# raw.avaliacao.nota  (nível 2 de profundidade)
+GET /api/data/atendimentos?filter=avaliacao.nota:gte:4
+
+# raw.fones.numero  (contatos)
+GET /api/data/contatos?filter=fones.numero:like:9999
+```
+
+### cURL completo
 ```bash
 curl -G https://SEU_HOST/api/data/atendimentos \
   -H 'Authorization: Bearer <SEU_TOKEN>' \
-  --data-urlencode 'client_id=<id>' \
   --data-urlencode 'filter=status:eq:aberto' \
-  --data-urlencode 'filter=departamento:eq:Suporte' \
+  --data-urlencode 'filter=contato.nome:ilike:silva' \
+  --data-urlencode 'order_by=aberto_em' \
+  --data-urlencode 'order_desc=true' \
   --data-urlencode 'limit=50' \
   --data-urlencode 'page=1'
 ```
 
-## Cache
+### Basic auth
+```bash
+curl -u "api:<SEU_TOKEN>" \
+  "https://SEU_HOST/api/data/contatos?filter=email:ilike:gmail.com&limit=20"
+```
 
-As leituras passam por um cache TTL (default 60s). Após cada sincronização o
-cache do cliente é invalidado e a 1ª página de cada recurso é **pré-aquecida**
-(resposta imediata). Filtros diferentes geram chaves de cache diferentes.
+## Resposta
+
+```json
+{
+  "resource": "atendimentos",
+  "client_id": "<forçado pelo token>",
+  "filters": [{ "field": "status", "op": "eq", "value": "aberto" }],
+  "pagination": { "limit": 50, "offset": 0, "page": 1, "total": 1234, "returned": 50, "has_more": true },
+  "data": [ { "id": "…", "external_id": "…", "protocolo": "…", "status": "aberto", "raw": { … }, "synced_at": "…" } ]
+}
+```
+
+Cada linha traz as **colunas tipadas** + o `raw` (documento OPA completo).
 
 ## Erros
 
@@ -129,3 +171,9 @@ cache do cliente é invalidado e a 1ª página de cada recurso é **pré-aquecid
 |---|---|
 | 400 | recurso inválido, filtro malformado, operador desconhecido |
 | 401 | token ausente ou inválido |
+
+## Cache
+
+Leituras passam por cache TTL (default 60s). Cada combinação de filtros tem sua
+própria chave. Após cada sync, o cache do cliente é invalidado e a 1ª página é
+pré-aquecida.
