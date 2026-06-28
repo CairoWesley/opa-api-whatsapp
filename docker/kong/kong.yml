@@ -7,10 +7,10 @@ _transform: true
 consumers:
   - username: anon
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogImFub24iLAogICJpc3MiOiAic3VwYWJhc2UiLAogICJpYXQiOiAxNzE1MDUwODAwLAogICJleHAiOiAxODcyODE3MjAwCn0.JxiPF6G9sDr6KKS4f8UHS9sCtOUtiD4PK4Wq5BsyRck
+      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzE1MDUwODAwLCJleHAiOjE4NzI4MTcyMDB9.z1vW6lZZvWRe1MbH23cH-LrrC1RbWR5fTbUdgq_e0HY
   - username: service_role
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M
+      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MTUwNTA4MDAsImV4cCI6MTg3MjgxNzIwMH0.rt2b2Rc5mNV4jhoYBBNqhJmeWVxho7AAJ3cZAATzJnE
 
 acls:
   - consumer: anon

@@ -9,8 +9,8 @@ services:
     image: ghcr.io/cairowesley/opa-api-whatsapp-db:latest
     environment:
       POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
-      JWT_SECRET: 4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c
+      POSTGRES_PASSWORD: f16ed7776808cce54b605a61529d3618
+      JWT_SECRET: d773947fb8035e210b0b50cee09a54cd6990a1b4
     volumes:
       - db_data:/var/lib/postgresql/data
     deploy:
@@ -19,10 +19,10 @@ services:
   rest:
     image: postgrest/postgrest:v12.2.0
     environment:
-      PGRST_DB_URI: postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres
+      PGRST_DB_URI: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
       PGRST_DB_SCHEMAS: public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: 4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c
+      PGRST_JWT_SECRET: d773947fb8035e210b0b50cee09a54cd6990a1b4
       PGRST_DB_USE_LEGACY_GUCS: "false"
     deploy:
       restart_policy: { condition: any }
@@ -50,7 +50,7 @@ services:
       PG_META_DB_PORT: "5432"
       PG_META_DB_NAME: postgres
       PG_META_DB_USER: postgres
-      PG_META_DB_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
+      PG_META_DB_PASSWORD: f16ed7776808cce54b605a61529d3618
     deploy:
       restart_policy: { condition: any }
 
@@ -61,14 +61,14 @@ services:
     environment:
       HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://meta:8080
-      POSTGRES_PASSWORD: 48debb7e1760c641ce6a250a6173c8cf
+      POSTGRES_PASSWORD: f16ed7776808cce54b605a61529d3618
       DEFAULT_ORGANIZATION_NAME: Local
       DEFAULT_PROJECT_NAME: opa-api-whatsapp
       SUPABASE_URL: http://kong:8000
       SUPABASE_PUBLIC_URL: http://localhost:8392
-      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogImFub24iLAogICJpc3MiOiAic3VwYWJhc2UiLAogICJpYXQiOiAxNzE1MDUwODAwLAogICJleHAiOiAxODcyODE3MjAwCn0.JxiPF6G9sDr6KKS4f8UHS9sCtOUtiD4PK4Wq5BsyRck
-      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ewogICJyb2xlIjogInNlcnZpY2Vfcm9sZSIsCiAgImlzcyI6ICJzdXBhYmFzZSIsCiAgImlhdCI6IDE3MTUwNTA4MDAsCiAgImV4cCI6IDE4NzI4MTcyMDAKfQ.8DIYyikDPJNlYr_oECt63d68flhBfVtR2PN2xW8bA6M
-      AUTH_JWT_SECRET: 4715d65c3eadc7c1b3c5e1de8aa32b8c6286a95c
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzE1MDUwODAwLCJleHAiOjE4NzI4MTcyMDB9.z1vW6lZZvWRe1MbH23cH-LrrC1RbWR5fTbUdgq_e0HY
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MTUwNTA4MDAsImV4cCI6MTg3MjgxNzIwMH0.rt2b2Rc5mNV4jhoYBBNqhJmeWVxho7AAJ3cZAATzJnE
+      AUTH_JWT_SECRET: d773947fb8035e210b0b50cee09a54cd6990a1b4
     deploy:
       restart_policy: { condition: any }
 
@@ -76,7 +76,7 @@ services:
     image: redis:7-alpine
     command: sh -c 'redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no'
     environment:
-      REDIS_PASSWORD: localredispass
+      REDIS_PASSWORD: add054bad174898a0d700b992a52d6b2
     deploy:
       restart_policy: { condition: any }
 
@@ -85,32 +85,32 @@ services:
     ports:
       - "8390:3000"
     environment:
-      DATABASE_URL: postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres
-      APP_ADMIN_TOKEN: local-admin-token
-      APP_ENCRYPTION_KEY: wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=
+      DATABASE_URL: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
+      APP_ADMIN_TOKEN: e1c9ebeb8bf2a39f38a1b5bcdd78f91e1499ea192b28ef44
+      APP_ENCRYPTION_KEY: LWkyCXPfTXNkP1bsEZiiHs6o+rXd1huWWfcRkUBL7XQ=
       CACHE_TTL_SECONDS: "60"
       OPA_PAGE_SIZE: "1000"
       OPA_TIMEOUT_MS: "30000"
       DEFAULT_LOOKBACK_DAYS: "30"
-      CRON_SECRET: local-admin-token
-      REDIS_URL: redis://:localredispass@redis:6379
-      SESSION_SECRET: troque-este-secret-de-sessao
+      CRON_SECRET: e1c9ebeb8bf2a39f38a1b5bcdd78f91e1499ea192b28ef44
+      REDIS_URL: redis://:add054bad174898a0d700b992a52d6b2@redis:6379
+      SESSION_SECRET: e6e15a287c538333839864d8cf0d80000e2d791ddb2f268657f1a57177ce4c62
       SESSION_TTL_HOURS: "12"
       DASHBOARD_DEFAULT_USER: admin
-      DASHBOARD_DEFAULT_PASSWORD: admin123
+      DASHBOARD_DEFAULT_PASSWORD: 2uKGDBxPjsmH6Aj
     deploy:
       restart_policy: { condition: any }
 
   worker:
     image: ghcr.io/cairowesley/opa-api-whatsapp-worker:latest
     environment:
-      DATABASE_URL: postgres://postgres:48debb7e1760c641ce6a250a6173c8cf@db:5432/postgres
-      APP_ENCRYPTION_KEY: wLwI/XiFB5LF0Gp+nYFLZqwCr5/l/+oEsyWq2t+Nx/E=
+      DATABASE_URL: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
+      APP_ENCRYPTION_KEY: LWkyCXPfTXNkP1bsEZiiHs6o+rXd1huWWfcRkUBL7XQ=
       OPA_PAGE_SIZE: "1000"
       OPA_TIMEOUT_MS: "30000"
       DEFAULT_LOOKBACK_DAYS: "30"
       CACHE_TTL_SECONDS: "60"
-      REDIS_URL: redis://:localredispass@redis:6379
+      REDIS_URL: redis://:add054bad174898a0d700b992a52d6b2@redis:6379
       WORKER_CONCURRENCY: "8"
       WORKER_RESOURCE_CONCURRENCY: "3"
       SCHEDULER_ENABLED: "true"
