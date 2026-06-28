@@ -21,6 +21,9 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Documentação servida dentro do admin (lida do filesystem em runtime).
+COPY --from=builder /app/README.md /app/RESUMO-PROJETO.md ./
+COPY --from=builder /app/docs ./docs
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

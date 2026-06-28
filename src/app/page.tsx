@@ -21,9 +21,17 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [me, setMe] = useState<string>("");
+  const [tab, setTab] = useState<"painel" | "docs">("painel");
   const [clients, setClients] = useState<Client[]>([]);
   const [resources, setResources] = useState<ResourceMeta[]>([]);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  // documentação
+  const [docList, setDocList] = useState<{ slug: string; title: string }[]>([]);
+  const [docSlug, setDocSlug] = useState("");
+  const [docHtml, setDocHtml] = useState("");
+  const [docTitle, setDocTitle] = useState("");
+  const [docLoading, setDocLoading] = useState(false);
 
   // form novo cliente
   const [form, setForm] = useState({
@@ -67,6 +75,29 @@ export default function AdminPage() {
     setResources(r.resources);
   }, [api]);
 
+  const loadDocList = useCallback(async () => {
+    const r = await api("/docs");
+    setDocList(r.docs);
+    return r.docs as { slug: string; title: string }[];
+  }, [api]);
+
+  const openDoc = useCallback(
+    async (slug: string) => {
+      setDocLoading(true);
+      setDocSlug(slug);
+      try {
+        const r = await api(`/docs/${slug}`);
+        setDocTitle(r.title);
+        setDocHtml(r.html);
+      } catch (e) {
+        setDocHtml(`<p>Erro ao carregar: ${(e as Error).message}</p>`);
+      } finally {
+        setDocLoading(false);
+      }
+    },
+    [api],
+  );
+
   // Bootstrap: já tem sessão válida (cookie)?
   useEffect(() => {
     fetch("/api/auth/me")
@@ -86,6 +117,15 @@ export default function AdminPage() {
       loadResources().catch(() => {});
     }
   }, [authed, loadClients, loadResources]);
+
+  // Ao abrir a aba Documentação: carrega a lista e abre o 1º doc.
+  useEffect(() => {
+    if (authed && tab === "docs" && docList.length === 0) {
+      loadDocList()
+        .then((docs) => docs[0] && openDoc(docs[0].slug))
+        .catch((e) => notify(e.message, false));
+    }
+  }, [authed, tab, docList.length, loadDocList, openDoc]);
 
   const login = async () => {
     if (!username.trim() || !password) return notify("Informe usuário e senha", false);
@@ -229,10 +269,43 @@ export default function AdminPage() {
     <>
       <header>
         <h1>🟢 OPA API WhatsApp — Admin</h1>
+        <nav className="tabs">
+          <button className={tab === "painel" ? "tab on" : "tab"} onClick={() => setTab("painel")}>Painel</button>
+          <button className={tab === "docs" ? "tab on" : "tab"} onClick={() => setTab("docs")}>Documentação</button>
+        </nav>
         <span className="spacer" />
         <span className="muted">{me ? `olá, ${me}` : "autenticado"}</span>
         <button className="ghost" onClick={logout}>Sair</button>
       </header>
+
+      {tab === "docs" ? (
+        <main>
+          <section className="card docs-layout">
+            <aside className="docs-nav">
+              <h2>Documentação</h2>
+              {docList.map((d) => (
+                <button
+                  key={d.slug}
+                  className={d.slug === docSlug ? "doc-link on" : "doc-link"}
+                  onClick={() => openDoc(d.slug)}
+                >
+                  {d.title}
+                </button>
+              ))}
+            </aside>
+            <article className="docs-body">
+              {docLoading ? (
+                <p className="muted">Carregando…</p>
+              ) : (
+                <>
+                  {docTitle && <div className="docs-title muted">{docTitle}</div>}
+                  <div className="markdown" dangerouslySetInnerHTML={{ __html: docHtml }} />
+                </>
+              )}
+            </article>
+          </section>
+        </main>
+      ) : (
       <main>
         {/* NOVO CLIENTE */}
         <section className="card">
@@ -316,6 +389,7 @@ export default function AdminPage() {
           {dOut && <pre>{dOut}</pre>}
         </section>
       </main>
+      )}
       {toast && <Toast {...toast} />}
     </>
   );

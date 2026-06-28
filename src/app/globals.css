@@ -55,3 +55,37 @@ pre { background: #0b1220; border: 1px solid var(--line); border-radius: 8px; pa
 .login-btn { width: 100%; margin-top: 20px; padding: 11px; font-size: 14px; }
 .login-btn:disabled { opacity: .6; cursor: default; }
 .login-foot { margin: 16px 0 0; text-align: center; line-height: 1.5; }
+
+/* ── Abas do header ──────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 6px; margin-left: 18px; }
+.tab { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 7px 12px; }
+.tab.on { background: #0b1220; color: var(--txt); border-color: var(--line); }
+
+/* ── Documentação ────────────────────────────────────────────────────────── */
+.docs-layout { display: grid; grid-template-columns: 260px 1fr; gap: 22px; align-items: start; }
+.docs-nav { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 16px; }
+.doc-link { text-align: left; background: transparent; color: var(--txt); border: 1px solid var(--line); padding: 10px 12px; font-weight: 500; line-height: 1.3; }
+.doc-link.on { background: #0b1220; border-color: var(--acc); color: var(--acc); }
+.docs-body { min-width: 0; }
+.docs-title { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+@media (max-width: 760px) { .docs-layout { grid-template-columns: 1fr; } .docs-nav { position: static; } }
+
+/* Markdown renderizado */
+.markdown { font-size: 14px; line-height: 1.65; color: var(--txt); overflow-wrap: anywhere; }
+.markdown h1, .markdown h2, .markdown h3 { color: var(--txt); line-height: 1.25; margin: 1.4em 0 .5em; text-transform: none; letter-spacing: normal; }
+.markdown h1 { font-size: 24px; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+.markdown h2 { font-size: 19px; border-bottom: 1px solid var(--line); padding-bottom: .25em; }
+.markdown h3 { font-size: 16px; }
+.markdown p { margin: .7em 0; }
+.markdown a { color: var(--acc2); }
+.markdown ul, .markdown ol { padding-left: 1.4em; margin: .6em 0; }
+.markdown li { margin: .25em 0; }
+.markdown code { background: #0b1220; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: 12.5px; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+.markdown pre { background: #0b1220; border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow: auto; }
+.markdown pre code { background: transparent; border: 0; padding: 0; font-size: 12px; line-height: 1.5; }
+.markdown table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 13px; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; }
+.markdown th { background: #0b1220; color: var(--muted); }
+.markdown blockquote { border-left: 3px solid var(--acc); margin: 1em 0; padding: .2em 1em; color: var(--muted); background: rgba(34,197,94,.05); }
+.markdown hr { border: 0; border-top: 1px solid var(--line); margin: 1.5em 0; }
+.markdown img { max-width: 100%; }
