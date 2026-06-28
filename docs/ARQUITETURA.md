@@ -198,9 +198,17 @@ ajusta-se a view, não o pipeline. Power BI consome as views, não o `raw`.
 
 ## 6. Segurança (como se encaixa)
 
+**Dois caminhos de autenticação** (`auth.ts → requireAuth`), ambos aceitos nas rotas admin:
+- **API / programático (Power BI, scripts):** `Authorization: Bearer <APP_ADMIN_TOKEN>`.
+- **Dashboard gerencial:** login **usuário/senha** → cookie de sessão `opa_session`
+  (httpOnly, HMAC-SHA256). Senha em hash **scrypt**; usuários em `dashboard_users`.
+  1º admin semeado das envs `DASHBOARD_DEFAULT_*` no 1º login. Sessão stateless
+  (cookie carrega `{uid,username,exp}` assinado). Rotas: `/api/auth/login|logout|me`.
+
 | Camada | Mecanismo | Onde |
 |---|---|---|
-| API/UI admin | Token `Bearer`, comparado em **tempo constante** | `auth.ts` (`timingSafeEqual`) |
+| API (token) | `Bearer`, comparado em **tempo constante** | `auth.ts` (`timingSafeEqual`) |
+| Dashboard | senha **scrypt** + cookie de sessão **HMAC** httpOnly | `session.ts`, `dashboard_users` |
 | Token da OPA em repouso | **AES-256-GCM**, formato `v1:iv:tag:cipher` | `crypto.ts` |
 | Token nunca vaza | `repo` seleciona colunas explícitas; só `getClientSecret` traz `token_encrypted`, usado apenas no extractor | `repo.ts` |
 | Banco | **RLS ligado sem policies** → anon key não lê nada; backend usa **service role** (bypassa RLS) | migration + `supabase.ts` |
