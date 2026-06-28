@@ -3,20 +3,23 @@
 import { useCallback, useEffect, useState } from "react";
 
 type Client = {
-  id: string; slug: string; name: string; base_url: string; active: boolean;
-  insecure_tls: boolean; last_sync_status: string | null; last_sync_error: string | null; last_synced_at: string | null;
+  id: string; slug: string; name: string; base_url: string; company_id: string | null; active: boolean;
+  insecure_tls: boolean; page_size: number | null; timeout_ms: number | null;
+  lookback_days: number; sync_interval_minutes: number;
+  last_sync_status: string | null; last_sync_error: string | null; last_synced_at: string | null;
 };
 type ResourceMeta = { key: string; filters: string[] };
-type ApiToken = { id: string; name: string; token_prefix: string; scopes: string[]; active: boolean; created_at: string; last_used_at: string | null };
+type ApiToken = { id: string; name: string; client_id: string | null; token_prefix: string; scopes: string[]; active: boolean; created_at: string; last_used_at: string | null };
 type SyncLog = { id: string; client_id: string; resource: string; status: string; records_upserted: number; error: string | null; started_at: string; finished_at: string | null };
-type View = "clientes" | "dados" | "tokens" | "historico" | "docs";
+type View = "dashboard" | "clientes" | "dados" | "tokens" | "historico" | "docs";
 
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleString("pt-BR") : "—");
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [booting, setBooting] = useState(true);
-  const [view, setView] = useState<View>("clientes");
+  const [view, setView] = useState<View>("dashboard");
+  const [editing, setEditing] = useState<Client | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [signingIn, setSigningIn] = useState(false);
@@ -47,6 +50,7 @@ export default function AdminPage() {
   // tokens
   const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [newTokName, setNewTokName] = useState("");
+  const [newTokClient, setNewTokClient] = useState("");
   const [revealed, setRevealed] = useState("");
 
   // histórico
@@ -81,7 +85,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => { if (authed) { loadClients().catch((e) => notify(e.message, false)); loadResources().catch(() => {}); } }, [authed, loadClients, loadResources]);
-  useEffect(() => { if (authed && view === "tokens") loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
+  useEffect(() => { if (authed && (view === "tokens" || view === "dashboard")) loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
   useEffect(() => { if (authed && view === "historico") loadLogs(logClient).catch((e) => notify(e.message, false)); }, [authed, view, logClient, loadLogs]);
   useEffect(() => { if (authed && view === "docs" && docList.length === 0) loadDocList().then((d) => d[0] && openDoc(d[0].slug)).catch(() => {}); }, [authed, view, docList.length, loadDocList, openDoc]);
 
@@ -102,6 +106,11 @@ export default function AdminPage() {
     catch (e) { notify((e as Error).message, false); }
   };
   const toggle = async (id: string, action: "activate" | "deactivate") => { try { await api(`/clients/${id}/${action}`, { method: "POST" }); loadClients(); } catch (e) { notify((e as Error).message, false); } };
+  const saveEdit = async (patch: any) => {
+    if (!editing) return;
+    try { await api(`/clients/${editing.id}`, { method: "PATCH", body: JSON.stringify(patch) }); notify("Configurações salvas"); setEditing(null); loadClients(); }
+    catch (e) { notify((e as Error).message, false); }
+  };
   const del = async (id: string, slug: string) => { if (!confirm(`Excluir "${slug}" e TODOS os dados? Irreversível.`)) return; try { await api(`/clients/${id}`, { method: "DELETE" }); notify("Removido"); loadClients(); } catch (e) { notify((e as Error).message, false); } };
   const syncNow = async (id: string, full = false) => {
     notify(full ? "Full sync enfileirado" : "Sync enfileirado");
@@ -119,7 +128,8 @@ export default function AdminPage() {
 
   const genToken = async () => {
     if (!newTokName.trim()) return notify("Dê um nome ao token", false);
-    try { const r = await api("/tokens", { method: "POST", body: JSON.stringify({ name: newTokName.trim() }) }); setRevealed(r.token); setNewTokName(""); loadTokens(); }
+    if (!newTokClient) return notify("Escolha o cliente do token", false);
+    try { const r = await api("/tokens", { method: "POST", body: JSON.stringify({ name: newTokName.trim(), client_id: newTokClient }) }); setRevealed(r.token); setNewTokName(""); loadTokens(); }
     catch (e) { notify((e as Error).message, false); }
   };
   const revokeToken = async (id: string) => { if (!confirm("Apagar este token?")) return; try { await api(`/tokens/${id}`, { method: "DELETE" }); loadTokens(); } catch (e) { notify((e as Error).message, false); } };
@@ -145,17 +155,19 @@ export default function AdminPage() {
   }
 
   const NAV: { v: View; ico: string; label: string }[] = [
+    { v: "dashboard", ico: "📊", label: "Dashboard" },
     { v: "clientes", ico: "🏢", label: "Clientes" },
     { v: "dados", ico: "🔎", label: "Explorar dados" },
     { v: "tokens", ico: "🔑", label: "Tokens de API" },
     { v: "historico", ico: "🕑", label: "Histórico de sync" },
     { v: "docs", ico: "📚", label: "Documentação" },
   ];
-  const titles: Record<View, string> = { clientes: "Clientes", dados: "Explorar dados", tokens: "Tokens de API", historico: "Histórico de sincronização", docs: "Documentação" };
+  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", tokens: "Tokens de API", historico: "Histórico de sincronização", docs: "Documentação" };
   const subs: Record<View, string> = {
-    clientes: "Tenants OPA Suite — criar, sincronizar, ativar/inativar",
+    dashboard: "Visão geral por cliente — status, tokens e rotas acessíveis",
+    clientes: "Tenants OPA Suite — criar, editar, sincronizar",
     dados: "Leitura paginada e filtrável dos dados extraídos",
-    tokens: "Gere e revogue tokens de acesso à API do cliente",
+    tokens: "Tokens por cliente para acesso à API",
     historico: "Status e motivos de erro por recurso",
     docs: "Documentação do projeto e da API",
   };
@@ -182,9 +194,10 @@ export default function AdminPage() {
           <div><h1>{titles[view]}</h1><div className="sub">{subs[view]}</div></div>
         </div>
         <div className="content">
-          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, loadClients, createClient }} />}
+          {view === "dashboard" && <DashboardView {...{ clients, tokens, resources, setView, loadTokens }} />}
+          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, loadClients, createClient, editing, setEditing, saveEdit }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
-          {view === "tokens" && <TokensView {...{ tokens, newTokName, setNewTokName, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
+          {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "historico" && <HistoricoView {...{ logs, clients, logClient, setLogClient, loadLogs }} />}
           {view === "docs" && <DocsView {...{ docList, docSlug, docHtml, docLoading, openDoc }} />}
         </div>
@@ -195,8 +208,62 @@ export default function AdminPage() {
 }
 
 /* ── Views ─────────────────────────────────────────────────────────────── */
+const RESOURCE_LIST = ["etiquetas","usuarios","departamentos","motivos","canais","templates","clientes","contatos","periodos","atendimentos","mensagens"];
+
+function DashboardView(p: any) {
+  const { clients, tokens, setView } = p;
+  const tokensOf = (cid: string) => tokens.filter((t: ApiToken) => t.client_id === cid && t.active);
+  return (
+    <>
+      <div className="row" style={{ marginBottom: 20 }}>
+        <Stat label="Clientes" value={clients.length} />
+        <Stat label="Ativos" value={clients.filter((c: Client) => c.active).length} />
+        <Stat label="Tokens ativos" value={tokens.filter((t: ApiToken) => t.active).length} />
+        <Stat label="Com erro" value={clients.filter((c: Client) => c.last_sync_status === "error").length} />
+      </div>
+      {clients.map((c: Client) => {
+        const tks = tokensOf(c.id);
+        return (
+          <section className="card" key={c.id}>
+            <div className="card-head">
+              <h2>{c.slug}</h2>
+              <StatusPill status={c.last_sync_status} />
+              <span className="sp" />
+              <span className="muted">{c.base_url}</span>
+            </div>
+            <div className="row" style={{ marginBottom: 14 }}>
+              <Stat label="Último sync" value={fmt(c.last_synced_at)} small />
+              <Stat label="Page size" value={c.page_size ?? "default"} small />
+              <Stat label="Lookback" value={`${c.lookback_days}d`} small />
+              <Stat label="Tokens" value={tks.length} small />
+            </div>
+            <div className="muted" style={{ marginBottom: 6 }}>Tokens deste cliente:</div>
+            {tks.length === 0
+              ? <div className="muted" style={{ marginBottom: 10 }}>nenhum — <button className="ghost xs" onClick={() => setView("tokens")}>gerar</button></div>
+              : <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{tks.map((t: ApiToken) => <span key={t.id} className="pill on"><span className="dot" />{t.name} ({t.token_prefix}…)</span>)}</div>}
+            <div className="muted" style={{ marginBottom: 6 }}>Rotas acessíveis via token deste cliente:</div>
+            <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>Recurso</th><th>Rota (GET)</th></tr></thead>
+                <tbody>
+                  {RESOURCE_LIST.map((r) => (
+                    <tr key={r}><td><b>{r}</b></td><td className="mono">/api/data/{r}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted" style={{ marginTop: 8 }}>O token é escopo deste cliente: só retorna dados de <b>{c.slug}</b> (client_id forçado).</p>
+          </section>
+        );
+      })}
+      {clients.length === 0 && <div className="empty card">Nenhum cliente. Cadastre na aba Clientes.</div>}
+    </>
+  );
+}
+
 function ClientesView(p: any) {
-  const { form, setForm, clients, syncNow, toggle, del, seeErrors, loadClients, createClient } = p;
+  const { form, setForm, clients, syncNow, toggle, del, seeErrors, loadClients, createClient, editing, setEditing, saveEdit } = p;
+  if (editing) return <EditClient client={editing} onCancel={() => setEditing(null)} onSave={saveEdit} />;
   return (
     <>
       <section className="card">
@@ -229,6 +296,7 @@ function ClientesView(p: any) {
                   <td className="actions">
                     <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>
                     <button className="sec xs" onClick={() => syncNow(c.id, true)}>Full</button>
+                    <button className="ghost xs" onClick={() => setEditing(c)}>Editar</button>
                     {c.active ? <button className="warn xs" onClick={() => toggle(c.id, "deactivate")}>Inativar</button> : <button className="xs" onClick={() => toggle(c.id, "activate")}>Ativar</button>}
                     <button className="danger xs" onClick={() => del(c.id, c.slug)}>Excluir</button>
                   </td>
@@ -262,12 +330,13 @@ function DadosView(p: any) {
 }
 
 function TokensView(p: any) {
-  const { tokens, newTokName, setNewTokName, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens } = p;
+  const { tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens } = p;
+  const slugOf = (cid: string | null) => (cid ? clients.find((c: Client) => c.id === cid)?.slug || "—" : "global");
   return (
     <>
       <section className="card">
-        <div className="card-head"><h2>Gerar novo token</h2></div>
-        <p className="card-desc">Tokens dão acesso à API de leitura do cliente (Bearer ou Basic auth). O valor aparece uma única vez.</p>
+        <div className="card-head"><h2>Gerar token por cliente</h2></div>
+        <p className="card-desc">Cada token é escopo de UM cliente: só lê os dados daquele cliente (Bearer ou Basic auth). O valor aparece uma única vez.</p>
         {revealed && (
           <div className="reveal">
             <b>Token gerado — copie agora (não será mostrado de novo):</b>
@@ -276,21 +345,22 @@ function TokensView(p: any) {
         )}
         <div className="row">
           <Field label="Nome do token" value={newTokName} onChange={setNewTokName} ph="ex: powerbi-financeiro" />
+          <div><label>Cliente *</label><select value={newTokClient} onChange={(e) => setNewTokClient(e.target.value)}><option value="">(escolha)</option>{clients.map((c: Client) => <option key={c.id} value={c.id}>{c.slug}</option>)}</select></div>
         </div>
         <div style={{ marginTop: 16 }}><button onClick={genToken}>Gerar token</button></div>
       </section>
 
       <section className="card">
-        <div className="card-head"><h2>Tokens ativos</h2><span className="sp" /><button className="ghost xs" onClick={() => loadTokens()}>↻ Atualizar</button></div>
+        <div className="card-head"><h2>Tokens</h2><span className="sp" /><button className="ghost xs" onClick={() => loadTokens()}>↻ Atualizar</button></div>
         <div className="tbl-wrap">
           <table>
-            <thead><tr><th>Nome</th><th>Prefixo</th><th>Escopos</th><th>Status</th><th>Criado</th><th>Último uso</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Cliente</th><th>Prefixo</th><th>Status</th><th>Criado</th><th>Último uso</th><th>Ações</th></tr></thead>
             <tbody>
               {tokens.map((t: ApiToken) => (
                 <tr key={t.id}>
                   <td><b>{t.name}</b></td>
+                  <td>{slugOf(t.client_id)}</td>
                   <td className="mono">{t.token_prefix}…</td>
-                  <td className="muted">{t.scopes.join(", ")}</td>
                   <td><span className={`pill ${t.active ? "on" : "off"}`}><span className="dot" />{t.active ? "ativo" : "revogado"}</span></td>
                   <td className="muted">{fmt(t.created_at)}</td>
                   <td className="muted">{fmt(t.last_used_at)}</td>
@@ -306,6 +376,44 @@ function TokensView(p: any) {
         </div>
       </section>
     </>
+  );
+}
+
+function EditClient({ client, onCancel, onSave }: { client: Client; onCancel: () => void; onSave: (patch: any) => void }) {
+  const [f, setF] = useState({
+    name: client.name, base_url: client.base_url, company_id: client.company_id ?? "",
+    lookback_days: client.lookback_days, sync_interval_minutes: client.sync_interval_minutes,
+    page_size: client.page_size ?? "", timeout_ms: client.timeout_ms ?? "",
+    insecure_tls: client.insecure_tls, token: "",
+  });
+  const set = (k: string, v: any) => setF({ ...f, [k]: v });
+  const submit = () => {
+    const patch: any = {
+      name: f.name, base_url: f.base_url, company_id: f.company_id || null,
+      lookback_days: Number(f.lookback_days), sync_interval_minutes: Number(f.sync_interval_minutes),
+      page_size: f.page_size === "" ? null : Number(f.page_size),
+      timeout_ms: f.timeout_ms === "" ? null : Number(f.timeout_ms),
+      insecure_tls: f.insecure_tls,
+    };
+    if (f.token.trim()) patch.token = f.token.trim();
+    onSave(patch);
+  };
+  return (
+    <section className="card">
+      <div className="card-head"><h2>Editar — {client.slug}</h2><span className="sp" /><button className="ghost xs" onClick={onCancel}>Cancelar</button></div>
+      <div className="row">
+        <Field label="Nome" value={f.name} onChange={(v: string) => set("name", v)} />
+        <Field label="Base URL" value={f.base_url} onChange={(v: string) => set("base_url", v)} />
+        <Field label="company_id" value={f.company_id} onChange={(v: string) => set("company_id", v)} />
+        <Field label="Lookback (dias)" type="number" value={String(f.lookback_days)} onChange={(v: string) => set("lookback_days", v)} />
+        <Field label="Intervalo sync (min)" type="number" value={String(f.sync_interval_minutes)} onChange={(v: string) => set("sync_interval_minutes", v)} />
+        <Field label="Page size (take paginação)" type="number" value={String(f.page_size)} onChange={(v: string) => set("page_size", v)} ph="default (env)" />
+        <Field label="Timeout (ms)" type="number" value={String(f.timeout_ms)} onChange={(v: string) => set("timeout_ms", v)} ph="default (env)" />
+        <Field label="Trocar token OPA" type="password" value={f.token} onChange={(v: string) => set("token", v)} ph="deixe vazio p/ manter" />
+        <div><label>Segurança TLS</label><label className="chk"><input type="checkbox" checked={f.insecure_tls} onChange={(e) => set("insecure_tls", e.target.checked)} /><span>Ignorar certificado</span></label></div>
+      </div>
+      <div style={{ marginTop: 16 }}><button onClick={submit}>Salvar configurações</button></div>
+    </section>
   );
 }
 
@@ -362,6 +470,14 @@ function DocsView(p: any) {
 /* ── Átomos ────────────────────────────────────────────────────────────── */
 function Field(props: { label: string; value: string; onChange: (v: string) => void; ph?: string; type?: string }) {
   return <div className="field"><label>{props.label}</label><input type={props.type || "text"} value={props.value} placeholder={props.ph} onChange={(e) => props.onChange(e.target.value)} /></div>;
+}
+function Stat({ label, value, small }: { label: string; value: any; small?: boolean }) {
+  return (
+    <div className="card" style={{ margin: 0, padding: "14px 16px" }}>
+      <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</div>
+      <div style={{ fontSize: small ? 14 : 24, fontWeight: 650, marginTop: 4 }}>{value}</div>
+    </div>
+  );
 }
 function StatusPill({ status }: { status: string | null }) {
   if (!status) return <span className="muted">—</span>;

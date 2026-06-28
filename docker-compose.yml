@@ -32,6 +32,7 @@ services:
       - ./supabase/migrations/0002_dashboard_users.sql:/docker-entrypoint-initdb.d/01b-users.sql:ro
       - ./supabase/migrations/0004_resource_tables.sql:/docker-entrypoint-initdb.d/01c-resources.sql:ro
       - ./supabase/migrations/0005_api_tokens.sql:/docker-entrypoint-initdb.d/01d-tokens.sql:ro
+      - ./supabase/migrations/0006_client_config_token_scope.sql:/docker-entrypoint-initdb.d/01e-config.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]

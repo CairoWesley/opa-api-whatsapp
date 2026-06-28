@@ -6,6 +6,7 @@ import { supabaseAdmin } from "./supabase";
 export type ApiTokenRow = {
   id: string;
   name: string;
+  client_id: string | null;
   token_prefix: string;
   scopes: string[];
   active: boolean;
@@ -13,18 +14,21 @@ export type ApiTokenRow = {
   last_used_at: string | null;
 };
 
+const COLS = "id, name, client_id, token_prefix, scopes, active, created_at, last_used_at";
+
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
 // Gera um token novo: `opa_<48 hex>`. Retorna o valor em claro + linha p/ inserir.
-export function generateToken(name: string, scopes: string[]) {
+export function generateToken(name: string, scopes: string[], clientId: string | null) {
   const secret = randomBytes(24).toString("hex");
   const token = `opa_${secret}`;
   return {
     token,
     row: {
       name,
+      client_id: clientId,
       token_prefix: token.slice(0, 12),
       token_hash: hashToken(token),
       scopes: scopes.length ? scopes : ["data:read"],
@@ -35,18 +39,18 @@ export function generateToken(name: string, scopes: string[]) {
 export async function listTokens(): Promise<ApiTokenRow[]> {
   const { data, error } = await supabaseAdmin()
     .from("api_tokens")
-    .select("id, name, token_prefix, scopes, active, created_at, last_used_at")
+    .select(COLS)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as ApiTokenRow[];
 }
 
-export async function createToken(name: string, scopes: string[]): Promise<{ token: string; row: ApiTokenRow }> {
-  const { token, row } = generateToken(name, scopes);
+export async function createToken(name: string, scopes: string[], clientId: string | null): Promise<{ token: string; row: ApiTokenRow }> {
+  const { token, row } = generateToken(name, scopes, clientId);
   const { data, error } = await supabaseAdmin()
     .from("api_tokens")
     .insert(row)
-    .select("id, name, token_prefix, scopes, active, created_at, last_used_at")
+    .select(COLS)
     .single();
   if (error) throw error;
   return { token, row: data as unknown as ApiTokenRow };
@@ -67,7 +71,7 @@ export async function verifyApiToken(token: string): Promise<ApiTokenRow | null>
   if (!token.startsWith("opa_")) return null;
   const { data, error } = await supabaseAdmin()
     .from("api_tokens")
-    .select("id, name, token_prefix, scopes, active, created_at, last_used_at")
+    .select(COLS)
     .eq("token_hash", hashToken(token))
     .eq("active", true)
     .maybeSingle();

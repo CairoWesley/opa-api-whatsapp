@@ -8,6 +8,8 @@ export type ClientRow = {
   company_id: string | null;
   active: boolean;
   insecure_tls: boolean;
+  page_size: number | null;
+  timeout_ms: number | null;
   sync_interval_minutes: number;
   lookback_days: number;
   extra_filters: Record<string, Record<string, unknown>>;

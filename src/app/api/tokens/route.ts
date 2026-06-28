@@ -14,6 +14,7 @@ export const POST = withAdmin(async (req) => {
   const name = String(body?.name ?? "").trim();
   if (!name) return error("Informe um nome para o token.", 422);
   const scopes = Array.isArray(body?.scopes) ? body.scopes.map(String) : ["data:read"];
-  const { token, row } = await createToken(name, scopes);
+  const clientId = body?.client_id ? String(body.client_id) : null;
+  const { token, row } = await createToken(name, scopes, clientId);
   return json({ token, ...row }, 201);
 });

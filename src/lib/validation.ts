@@ -9,10 +9,18 @@ export type ClientInput = {
   company_id: string | null;
   active: boolean;
   insecure_tls: boolean;
+  page_size: number | null;
+  timeout_ms: number | null;
   sync_interval_minutes: number;
   lookback_days: number;
   extra_filters: Record<string, unknown>;
 };
+
+function numOrNull(v: unknown): number | null {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 function normalizeBaseUrl(v: unknown): string {
   if (typeof v !== "string" || !/^https?:\/\//.test(v.trim())) {
@@ -37,6 +45,8 @@ export function parseClientCreate(body: any): ClientInput {
     company_id: body.company_id ? String(body.company_id) : null,
     active: body.active ?? true,
     insecure_tls: Boolean(body.insecure_tls ?? false),
+    page_size: numOrNull(body.page_size),
+    timeout_ms: numOrNull(body.timeout_ms),
     sync_interval_minutes: Number(body.sync_interval_minutes ?? 30),
     lookback_days: Number(body.lookback_days ?? 30),
     extra_filters: body.extra_filters ?? {},
@@ -52,6 +62,9 @@ export function parseClientUpdate(body: any): Record<string, unknown> {
   if (body.company_id !== undefined) patch.company_id = body.company_id ? String(body.company_id) : null;
   if (body.active !== undefined) patch.active = Boolean(body.active);
   if (body.insecure_tls !== undefined) patch.insecure_tls = Boolean(body.insecure_tls);
+  if (body.page_size !== undefined) patch.page_size = numOrNull(body.page_size);
+  if (body.timeout_ms !== undefined) patch.timeout_ms = numOrNull(body.timeout_ms);
+  if (body.slug !== undefined) patch.slug = String(body.slug).trim();
   if (body.sync_interval_minutes !== undefined)
     patch.sync_interval_minutes = Number(body.sync_interval_minutes);
   if (body.lookback_days !== undefined) patch.lookback_days = Number(body.lookback_days);

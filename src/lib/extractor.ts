@@ -93,8 +93,8 @@ export async function syncClient(
   const opa = new OpaClient({
     baseUrl: client.base_url,
     token,
-    pageSize: config.opaPageSize(),
-    timeoutMs: config.opaTimeoutMs(),
+    pageSize: client.page_size || config.opaPageSize(),
+    timeoutMs: client.timeout_ms || config.opaTimeoutMs(),
     insecureTls: client.insecure_tls,
   });
 

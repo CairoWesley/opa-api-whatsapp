@@ -12,7 +12,7 @@ export class UnauthorizedError extends Error {}
 export type Principal =
   | { kind: "token" }
   | { kind: "session"; uid: string; username: string }
-  | { kind: "apitoken"; tokenId: string; name: string; scopes: string[] };
+  | { kind: "apitoken"; tokenId: string; name: string; scopes: string[]; clientId: string | null };
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -72,7 +72,7 @@ export async function requireApiAuth(req: Request): Promise<Principal> {
   // 3. Token de API (tabela api_tokens).
   for (const c of candidates) {
     const t = await verifyApiToken(c);
-    if (t) return { kind: "apitoken", tokenId: t.id, name: t.name, scopes: t.scopes };
+    if (t) return { kind: "apitoken", tokenId: t.id, name: t.name, scopes: t.scopes, clientId: t.client_id };
   }
 
   throw new UnauthorizedError("Não autenticado. Use Bearer/Basic com um token válido.");

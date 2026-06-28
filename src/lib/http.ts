@@ -1,6 +1,6 @@
 // Helpers para route handlers: auth guard + respostas JSON padronizadas.
 import { NextResponse } from "next/server";
-import { requireAdmin, requireApiAuth, UnauthorizedError } from "./auth";
+import { requireAdmin, requireApiAuth, UnauthorizedError, type Principal } from "./auth";
 
 export function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -27,14 +27,15 @@ export function withAdmin(
 }
 
 // Como withAdmin, mas para a API do CLIENTE: aceita token admin, sessão E
-// tokens de API (Bearer ou Basic auth).
+// tokens de API (Bearer ou Basic auth). Repassa o principal ao handler
+// (p/ aplicar o escopo de cliente do token).
 export function withApiAuth(
-  handler: (req: Request, ctx: { params: Record<string, string> }) => Promise<Response>,
+  handler: (req: Request, ctx: { params: Record<string, string> }, principal: Principal) => Promise<Response>,
 ) {
   return async (req: Request, ctx: { params: Record<string, string> }) => {
     try {
-      await requireApiAuth(req);
-      return await handler(req, ctx);
+      const principal = await requireApiAuth(req);
+      return await handler(req, ctx, principal);
     } catch (err) {
       if (err instanceof UnauthorizedError) return error(err.message, 401);
       const msg = err instanceof Error ? err.message : "Erro interno";

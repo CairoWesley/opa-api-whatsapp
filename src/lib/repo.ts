@@ -9,8 +9,8 @@ import type { OpaDoc } from "./opa-client";
 export type DashUser = { id: string; username: string; password_hash: string; active: boolean };
 
 const CLIENT_COLUMNS =
-  "id, slug, name, base_url, company_id, active, insecure_tls, sync_interval_minutes, " +
-  "lookback_days, extra_filters, last_synced_at, last_sync_status, " +
+  "id, slug, name, base_url, company_id, active, insecure_tls, page_size, timeout_ms, " +
+  "sync_interval_minutes, lookback_days, extra_filters, last_synced_at, last_sync_status, " +
   "last_sync_error, created_at, updated_at";
 
 const nowIso = () => new Date().toISOString();

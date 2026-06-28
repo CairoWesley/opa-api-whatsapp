@@ -15,14 +15,16 @@ const FIELD_RE = /^[a-zA-Z0-9_]+$/;
 //
 // Filtro: ops eq|neq|like|ilike|gt|gte|lt|lte. Campos do documento OPA são
 // consultados em raw->>'campo'; external_id|synced_at|client_id são colunas.
-export const GET = withApiAuth(async (req, { params }) => {
+export const GET = withApiAuth(async (req, { params }, principal) => {
   const resource = params.resource;
   if (!isValidResource(resource)) {
     return error(`Recurso inválido. Use um de: ${RESOURCE_KEYS.join(", ")}`, 400);
   }
 
   const q = new URL(req.url).searchParams;
-  const clientId = q.get("client_id") || null;
+  // Token POR CLIENTE: força o escopo desse cliente (ignora client_id da query).
+  const scopedClient = principal.kind === "apitoken" ? principal.clientId : null;
+  const clientId = scopedClient ?? (q.get("client_id") || null);
   const limit = Math.min(Math.max(Number(q.get("limit") ?? 100), 1), MAX_LIMIT);
   const page = q.get("page") ? Math.max(Number(q.get("page")), 1) : null;
   const offset = page !== null ? (page - 1) * limit : Math.max(Number(q.get("offset") ?? 0), 0);
