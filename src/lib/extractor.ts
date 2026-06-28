@@ -70,8 +70,9 @@ async function syncResource(
     return { resource: resource.key, status: "ok", records_upserted: total };
   } catch (err) {
     const msg = err instanceof OpaError ? err.message : String(err);
+    const permission_error = err instanceof OpaError && (err.statusCode === 401 || err.statusCode === 403);
     await repo.insertSyncLog(client.id, resource.key, "error", total, msg);
-    return { resource: resource.key, status: "error", records_upserted: total, error: msg };
+    return { resource: resource.key, status: "error", records_upserted: total, error: msg, permission_error };
   }
 }
 
@@ -84,7 +85,10 @@ export async function syncClient(
   const client = await repo.getClientSecret(clientId);
   if (!client) throw new Error(`Cliente ${clientId} não encontrado`);
 
-  const keys = resources?.length ? resources : RESOURCE_KEYS;
+  const requested = resources?.length ? resources : RESOURCE_KEYS;
+  // Pula recursos BLOQUEADOS (deram 401/403) até serem revalidados no painel.
+  const blocked = new Set(client.blocked_resources ?? []);
+  const keys = requested.filter((k) => !blocked.has(k));
   // 1º sync (nunca sincronizado) = FULL automático. Override ignora full.
   const full = !override && (forceFull === true || client.last_synced_at == null);
   await repo.setSyncState(clientId, "running");
@@ -109,6 +113,13 @@ export async function syncClient(
   } catch (err) {
     await repo.setSyncState(clientId, "error", String(err), false);
     throw err;
+  }
+
+  // Recursos com 401/403 saem da fila desse cliente até revalidar o token.
+  const newlyBlocked = results.filter((r) => r.permission_error).map((r) => r.resource);
+  if (newlyBlocked.length) {
+    const merged = Array.from(new Set([...(client.blocked_resources ?? []), ...newlyBlocked]));
+    await repo.setBlockedResources(clientId, merged);
   }
 
   const status = hadError ? "error" : "ok";
@@ -161,6 +172,37 @@ export async function warmClientCache(clientId: string, keys: string[]): Promise
       data: rows,
     });
   }
+}
+
+// Revalida o token: faz um GET (limit 1) em CADA rota e descobre a quais o
+// token tem acesso. Atualiza resource_access + blocked_resources (rotas 401/403
+// ficam bloqueadas; as que voltarem a responder 200 são desbloqueadas).
+export async function revalidateClient(clientId: string): Promise<{
+  access: Record<string, { ok: boolean; code: number; at: string }>;
+  blocked: string[];
+}> {
+  const client = await repo.getClientSecret(clientId);
+  if (!client) throw new Error(`Cliente ${clientId} não encontrado`);
+  const token = decryptToken(client.token_encrypted);
+  const opa = new OpaClient({
+    baseUrl: client.base_url,
+    token,
+    timeoutMs: client.timeout_ms || config.opaTimeoutMs(),
+    insecureTls: client.insecure_tls,
+    maxRetries: 0,
+  });
+
+  const at = new Date().toISOString();
+  const access: Record<string, { ok: boolean; code: number; at: string }> = {};
+  const blocked: string[] = [];
+  await mapPool(RESOURCE_KEYS, config.resourceConcurrency(), async (key) => {
+    const r = await opa.probe(getResource(key).path);
+    access[key] = { ok: r.ok, code: r.code, at };
+    if (!r.ok && (r.code === 401 || r.code === 403)) blocked.push(key);
+  });
+
+  await repo.setResourceAccess(clientId, access, blocked);
+  return { access, blocked };
 }
 
 export async function syncAllActive(): Promise<SyncResult[]> {

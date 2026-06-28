@@ -25,7 +25,10 @@ export type OpaClientOptions = {
   pageSize?: number;
   timeoutMs?: number;
   insecureTls?: boolean; // ignora verificação de cert TLS (hosts com cert inválido)
+  maxRetries?: number;   // retries em timeout/5xx/rede (NÃO em 4xx)
 };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class OpaClient {
   private baseUrl: string;
@@ -33,6 +36,7 @@ export class OpaClient {
   private pageSize: number;
   private timeoutMs: number;
   private insecureTls: boolean;
+  private maxRetries: number;
 
   constructor(opts: OpaClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -43,9 +47,27 @@ export class OpaClient {
     this.pageSize = opts.pageSize ?? 500;
     this.timeoutMs = opts.timeoutMs ?? 30000;
     this.insecureTls = opts.insecureTls ?? false;
+    this.maxRetries = opts.maxRetries ?? 3;
   }
 
-  private request(path: string, payload: unknown): Promise<unknown> {
+  // Retry com backoff em: timeout, erro de rede, e HTTP 5xx. NUNCA em 4xx.
+  private async request(path: string, payload: unknown): Promise<unknown> {
+    let attempt = 0;
+    for (;;) {
+      try {
+        return await this.rawRequest(path, payload);
+      } catch (err) {
+        const retriable =
+          (err instanceof OpaError && err.statusCode >= 500) ||
+          !(err instanceof OpaError); // timeout/rede (não-OpaError) são retriáveis
+        if (!retriable || attempt >= this.maxRetries) throw err;
+        attempt++;
+        await sleep(Math.min(1000 * 2 ** (attempt - 1), 8000));
+      }
+    }
+  }
+
+  private rawRequest(path: string, payload: unknown): Promise<unknown> {
     const url = new URL(this.baseUrl + path);
     const body = JSON.stringify(payload);
     const transport = url.protocol === "http:" ? http : https;
@@ -119,6 +141,22 @@ export class OpaClient {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  // Testa o acesso a UMA rota (GET limit 1). Sem retry — é um probe rápido.
+  async probe(path: string): Promise<{ ok: boolean; code: number; message?: string }> {
+    try {
+      await this.rawRequest(path, { filter: {}, options: { limit: 1, skip: 0 } });
+      return { ok: true, code: 200 };
+    } catch (err) {
+      if (err instanceof OpaError) {
+        const msg = typeof err.body === "object" && err.body
+          ? JSON.stringify(err.body).slice(0, 150)
+          : String(err.body);
+        return { ok: false, code: err.statusCode, message: msg };
+      }
+      return { ok: false, code: 0, message: String(err) };
     }
   }
 }

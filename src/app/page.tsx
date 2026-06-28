@@ -6,6 +6,7 @@ type Client = {
   id: string; slug: string; name: string; base_url: string; company_id: string | null; active: boolean;
   insecure_tls: boolean; page_size: number | null; timeout_ms: number | null;
   lookback_days: number; sync_interval_minutes: number;
+  blocked_resources: string[]; resource_access: Record<string, { ok: boolean; code: number; at: string }>;
   last_sync_status: string | null; last_sync_error: string | null; last_synced_at: string | null;
 };
 type ResourceMeta = { key: string; filters: string[] };
@@ -117,6 +118,15 @@ export default function AdminPage() {
     try { await api(`/sync/clients/${id}${full ? "?full=true" : ""}`, { method: "POST" }); setTimeout(loadClients, 1500); setTimeout(loadClients, 5000); } catch (e) { notify((e as Error).message, false); }
   };
   const seeErrors = (id: string) => { setLogClient(id); setView("historico"); };
+  const revalidate = async (id: string) => {
+    notify("Revalidando token em cada rota…");
+    try {
+      const r = await api(`/clients/${id}/revalidate`, { method: "POST" });
+      const ok = Object.values(r.access).filter((a: any) => a.ok).length;
+      notify(`Revalidado: ${ok}/${Object.keys(r.access).length} rotas acessíveis · ${r.blocked.length} bloqueadas`);
+      loadClients();
+    } catch (e) { notify((e as Error).message, false); }
+  };
 
   const loadData = async () => {
     const qs = new URLSearchParams({ limit: String(dLimit), page: String(dPage) });
@@ -195,7 +205,7 @@ export default function AdminPage() {
         </div>
         <div className="content">
           {view === "dashboard" && <DashboardView {...{ clients, tokens, resources, setView, loadTokens }} />}
-          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, loadClients, createClient, editing, setEditing, saveEdit }} />}
+          {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "historico" && <HistoricoView {...{ logs, clients, logClient, setLogClient, loadLogs }} />}
@@ -241,18 +251,26 @@ function DashboardView(p: any) {
             {tks.length === 0
               ? <div className="muted" style={{ marginBottom: 10 }}>nenhum — <button className="ghost xs" onClick={() => setView("tokens")}>gerar</button></div>
               : <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{tks.map((t: ApiToken) => <span key={t.id} className="pill on"><span className="dot" />{t.name} ({t.token_prefix}…)</span>)}</div>}
-            <div className="muted" style={{ marginBottom: 6 }}>Rotas acessíveis via token deste cliente:</div>
+            <div className="muted" style={{ marginBottom: 6 }}>Rotas e acesso do token na OPA (revalide p/ atualizar):</div>
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>Recurso</th><th>Rota (GET)</th></tr></thead>
+                <thead><tr><th>Recurso</th><th>Rota (GET)</th><th>Acesso do token</th></tr></thead>
                 <tbody>
-                  {RESOURCE_LIST.map((r) => (
-                    <tr key={r}><td><b>{r}</b></td><td className="mono">/api/data/{r}</td></tr>
-                  ))}
+                  {RESOURCE_LIST.map((r) => {
+                    const a = c.resource_access?.[r];
+                    const blk = c.blocked_resources?.includes(r);
+                    return (
+                      <tr key={r}>
+                        <td><b>{r}</b></td>
+                        <td className="mono">/api/data/{r}</td>
+                        <td>{blk ? <span className="pill off"><span className="dot" />bloqueado{a ? ` (${a.code})` : ""}</span> : a?.ok ? <span className="pill on"><span className="dot" />ok</span> : <span className="muted">não testado</span>}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            <p className="muted" style={{ marginTop: 8 }}>O token é escopo deste cliente: só retorna dados de <b>{c.slug}</b> (client_id forçado).</p>
+            <p className="muted" style={{ marginTop: 8 }}>Token escopo deste cliente: só retorna dados de <b>{c.slug}</b>. Rotas bloqueadas (401/403) ficam fora da fila até <b>revalidar</b>.</p>
           </section>
         );
       })}
@@ -262,7 +280,7 @@ function DashboardView(p: any) {
 }
 
 function ClientesView(p: any) {
-  const { form, setForm, clients, syncNow, toggle, del, seeErrors, loadClients, createClient, editing, setEditing, saveEdit } = p;
+  const { form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit } = p;
   if (editing) return <EditClient client={editing} onCancel={() => setEditing(null)} onSave={saveEdit} />;
   return (
     <>
@@ -291,11 +309,15 @@ function ClientesView(p: any) {
                 <tr key={c.id}>
                   <td><b>{c.slug}</b>{c.insecure_tls && <span className="muted" title="TLS inseguro"> 🔓</span>}</td>
                   <td>{c.name}</td>
-                  <td><StatusPill status={c.last_sync_status} /> {c.last_sync_status === "error" && <button className="ghost xs" onClick={() => seeErrors(c.id)}>ver erro</button>}</td>
+                  <td>
+                    <StatusPill status={c.last_sync_status} /> {c.last_sync_status === "error" && <button className="ghost xs" onClick={() => seeErrors(c.id)}>ver erro</button>}
+                    {c.blocked_resources?.length > 0 && <div style={{ marginTop: 4 }}><span className="pill off" title={c.blocked_resources.join(", ")}>🚫 {c.blocked_resources.length} rota(s) bloqueada(s)</span></div>}
+                  </td>
                   <td className="muted">{fmt(c.last_synced_at)}</td>
                   <td className="actions">
                     <button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button>
                     <button className="sec xs" onClick={() => syncNow(c.id, true)}>Full</button>
+                    <button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar token</button>
                     <button className="ghost xs" onClick={() => setEditing(c)}>Editar</button>
                     {c.active ? <button className="warn xs" onClick={() => toggle(c.id, "deactivate")}>Inativar</button> : <button className="xs" onClick={() => toggle(c.id, "activate")}>Ativar</button>}
                     <button className="danger xs" onClick={() => del(c.id, c.slug)}>Excluir</button>

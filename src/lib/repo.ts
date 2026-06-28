@@ -10,8 +10,8 @@ export type DashUser = { id: string; username: string; password_hash: string; ac
 
 const CLIENT_COLUMNS =
   "id, slug, name, base_url, company_id, active, insecure_tls, page_size, timeout_ms, " +
-  "sync_interval_minutes, lookback_days, extra_filters, last_synced_at, last_sync_status, " +
-  "last_sync_error, created_at, updated_at";
+  "sync_interval_minutes, lookback_days, blocked_resources, resource_access, extra_filters, " +
+  "last_synced_at, last_sync_status, last_sync_error, created_at, updated_at";
 
 const nowIso = () => new Date().toISOString();
 
@@ -70,6 +70,23 @@ export async function updateClient(
 
 export async function deleteClient(id: string): Promise<void> {
   const { error } = await supabaseAdmin().from("opa_clients").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setBlockedResources(id: string, blocked: string[]): Promise<void> {
+  const { error } = await supabaseAdmin().from("opa_clients").update({ blocked_resources: blocked }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setResourceAccess(
+  id: string,
+  access: Record<string, { ok: boolean; code: number; at: string }>,
+  blocked: string[],
+): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .from("opa_clients")
+    .update({ resource_access: access, blocked_resources: blocked })
+    .eq("id", id);
   if (error) throw error;
 }
 

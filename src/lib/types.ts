@@ -12,6 +12,8 @@ export type ClientRow = {
   timeout_ms: number | null;
   sync_interval_minutes: number;
   lookback_days: number;
+  blocked_resources: string[];
+  resource_access: Record<string, { ok: boolean; code: number; at: string }>;
   extra_filters: Record<string, Record<string, unknown>>;
   last_synced_at: string | null;
   last_sync_status: string | null;
@@ -28,6 +30,7 @@ export type ResourceSyncResult = {
   status: "ok" | "error";
   records_upserted: number;
   error?: string;
+  permission_error?: boolean; // 401/403 → recurso bloqueado até revalidar
 };
 
 export type SyncResult = {
