@@ -85,6 +85,7 @@ export async function syncClient(
   const client = await repo.getClientSecret(clientId);
   if (!client) throw new Error(`Cliente ${clientId} não encontrado`);
 
+  const startedAt = new Date().toISOString();
   const requested = resources?.length ? resources : RESOURCE_KEYS;
   // Pula recursos BLOQUEADOS (deram 401/403) até serem revalidados no painel.
   const blocked = new Set(client.blocked_resources ?? []);
@@ -129,16 +130,25 @@ export async function syncClient(
       .map((r) => `${r.resource}: ${r.error}`)
       .join("; ") || null;
   await repo.setSyncState(clientId, status, errSummary, true);
+
+  const totalUpserted = results.reduce((a, r) => a + r.records_upserted, 0);
+  await repo.insertSyncRun({
+    client_id: clientId,
+    status,
+    is_full: full,
+    resources_count: results.length,
+    ok_count: results.filter((r) => r.status === "ok").length,
+    error_count: results.filter((r) => r.status === "error").length,
+    total_upserted: totalUpserted,
+    started_at: startedAt,
+    finished_at: new Date().toISOString(),
+  }).catch(() => {});
+
   cacheInvalidatePrefix(`data:${clientId}:`);
+  cacheInvalidatePrefix("stats:");
   await warmClientCache(clientId, keys).catch(() => {});
 
-  return {
-    client_id: clientId,
-    client_slug: client.slug,
-    status,
-    resources: results,
-    total_upserted: results.reduce((a, r) => a + r.records_upserted, 0),
-  };
+  return { client_id: clientId, client_slug: client.slug, status, resources: results, total_upserted: totalUpserted };
 }
 
 // Pré-carrega o cache da 1ª página (limit 100, mais recentes) de cada recurso

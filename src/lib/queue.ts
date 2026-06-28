@@ -27,8 +27,10 @@ function queue(): Queue<SyncJobData> {
 const DEFAULT_OPTS: JobsOptions = {
   attempts: 3,
   backoff: { type: "exponential", delay: 5000 },
-  removeOnComplete: 200,
-  removeOnFail: 500,
+  // Remove ao terminar p/ LIBERAR o jobId estável — assim re-syncs do mesmo
+  // cliente voltam a rodar. O id só dedupa enquanto o job está na fila/ativo.
+  removeOnComplete: true,
+  removeOnFail: true,
 };
 
 // Enfileira o sync de um cliente. jobId estável evita duplicar o mesmo cliente

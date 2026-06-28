@@ -3,6 +3,7 @@ import { supabaseAdmin } from "./supabase";
 import { config } from "./config";
 import { hashPassword } from "./session";
 import { tableFor, typedColumns, mapTypedColumns } from "./mappers";
+import { RESOURCE_KEYS } from "./resources";
 import type { ClientRow, ClientSecretRow } from "./types";
 import type { OpaDoc } from "./opa-client";
 
@@ -226,6 +227,48 @@ export async function ensureSeedUser(): Promise<void> {
   } catch {
     /* corrida: outro processo semeou primeiro — ignora */
   }
+}
+
+// ── Sync runs (histórico por execução) + estatísticas ───────────────────────
+export async function insertSyncRun(row: Record<string, unknown>): Promise<void> {
+  const { error } = await supabaseAdmin().from("sync_runs").insert(row);
+  if (error) throw error;
+}
+
+export async function listRecentRuns(limit = 20): Promise<any[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("sync_runs")
+    .select("id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at")
+    .order("started_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as any[];
+}
+
+// Todas as runs (campos leves) p/ agregação no servidor.
+export async function allRunsLite(): Promise<{ client_id: string; status: string; started_at: string; total_upserted: number }[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("sync_runs")
+    .select("client_id, status, started_at, total_upserted");
+  if (error) throw error;
+  return (data ?? []) as any[];
+}
+
+// Contagem de linhas por recurso (cada tabela). head:true = sem trazer dados.
+export async function perResourceCounts(): Promise<Record<string, number>> {
+  const entries = await Promise.all(
+    RESOURCE_KEYS.map(async (r) => {
+      const { count } = await supabaseAdmin().from(tableFor(r)).select("id", { count: "exact", head: true });
+      return [r, count ?? 0] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
+}
+
+export async function tokenCounts(): Promise<{ total: number; active: number }> {
+  const { count: total } = await supabaseAdmin().from("api_tokens").select("id", { count: "exact", head: true });
+  const { count: active } = await supabaseAdmin().from("api_tokens").select("id", { count: "exact", head: true }).eq("active", true);
+  return { total: total ?? 0, active: active ?? 0 };
 }
 
 // ── Logs ────────────────────────────────────────────────────────────────────

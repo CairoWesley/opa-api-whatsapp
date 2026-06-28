@@ -59,6 +59,9 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [logClient, setLogClient] = useState("");
 
+  // dashboard
+  const [overview, setOverview] = useState<any>(null);
+
   const notify = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 4000); };
 
   const api = useCallback(async (path: string, opts: RequestInit = {}) => {
@@ -76,6 +79,7 @@ export default function AdminPage() {
     const qs = clientId ? `?client_id=${clientId}` : "";
     setLogs((await api(`/sync/logs${qs}`)).logs);
   }, [api]);
+  const loadOverview = useCallback(async () => setOverview(await api("/stats/overview")), [api]);
   const loadDocList = useCallback(async () => { const r = await api("/docs"); setDocList(r.docs); return r.docs as { slug: string; title: string }[]; }, [api]);
   const openDoc = useCallback(async (slug: string) => {
     setDocLoading(true); setDocSlug(slug);
@@ -111,7 +115,8 @@ export default function AdminPage() {
   }, [restored, view, dRes, dClient, dLimit, dPage, dFilter, logClient, newTokClient]);
 
   useEffect(() => { if (authed) { loadClients().catch((e) => notify(e.message, false)); loadResources().catch(() => {}); } }, [authed, loadClients, loadResources]);
-  useEffect(() => { if (authed && (view === "tokens" || view === "dashboard")) loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
+  useEffect(() => { if (authed && view === "tokens") loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
+  useEffect(() => { if (authed && view === "dashboard") { loadTokens().catch(() => {}); loadOverview().catch((e) => notify(e.message, false)); } }, [authed, view, loadTokens, loadOverview]);
   useEffect(() => { if (authed && view === "historico") loadLogs(logClient).catch((e) => notify(e.message, false)); }, [authed, view, logClient, loadLogs]);
   useEffect(() => { if (authed && view === "docs" && docList.length === 0) loadDocList().then((d) => d[0] && openDoc(d[0].slug)).catch(() => {}); }, [authed, view, docList.length, loadDocList, openDoc]);
 
@@ -229,7 +234,7 @@ export default function AdminPage() {
           <div><h1>{titles[view]}</h1><div className="sub">{subs[view]}</div></div>
         </div>
         <div className="content">
-          {view === "dashboard" && <DashboardView {...{ clients, tokens, resources, setView, loadTokens }} />}
+          {view === "dashboard" && <DashboardView {...{ overview, clients, setView, revalidate, syncNow, loadOverview }} />}
           {view === "clientes" && <ClientesView {...{ form, setForm, clients, syncNow, toggle, del, seeErrors, revalidate, loadClients, createClient, editing, setEditing, saveEdit }} />}
           {view === "dados" && <DadosView {...{ resources, clients, dRes, setDRes, dClient, setDClient, dLimit, setDLimit, dPage, setDPage, dFilter, setDFilter, dMeta, dOut, loadData }} />}
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
@@ -246,60 +251,107 @@ export default function AdminPage() {
 const RESOURCE_LIST = ["etiquetas","usuarios","departamentos","motivos","canais","templates","clientes","contatos","periodos","atendimentos","mensagens"];
 
 function DashboardView(p: any) {
-  const { clients, tokens, setView } = p;
-  const tokensOf = (cid: string) => tokens.filter((t: ApiToken) => t.client_id === cid && t.active);
+  const { overview: o, clients, revalidate, syncNow, loadOverview } = p;
+  if (!o) return <div className="empty card">Carregando estatísticas…</div>;
+  const slugOf = (id: string) => clients.find((c: Client) => c.id === id)?.slug || "—";
+  const maxRec = Math.max(1, ...Object.values(o.records.by_resource as Record<string, number>));
+  const q = o.queue || {};
   return (
     <>
-      <div className="row" style={{ marginBottom: 20 }}>
-        <Stat label="Clientes" value={clients.length} />
-        <Stat label="Ativos" value={clients.filter((c: Client) => c.active).length} />
-        <Stat label="Tokens ativos" value={tokens.filter((t: ApiToken) => t.active).length} />
-        <Stat label="Com erro" value={clients.filter((c: Client) => c.last_sync_status === "error").length} />
+      {/* KPIs */}
+      <div className="kpi-grid">
+        <Stat label="Clientes" value={o.clients.total} />
+        <Stat label="Ativos" value={o.clients.active} />
+        <Stat label={`Ativos em ${o.month.label}`} value={o.active_clients_this_month} />
+        <Stat label="Syncs (total)" value={o.syncs.total} />
+        <Stat label={`Syncs em ${o.month.label}`} value={o.syncs.this_month} />
+        <Stat label="Registros (total)" value={Number(o.records.total).toLocaleString("pt-BR")} />
+        <Stat label="Tokens ativos" value={o.tokens.active} />
+        <Stat label="Com erro" value={o.clients.with_errors} />
+        <Stat label="Com rota bloqueada" value={o.clients.blocked} />
+        <Stat label="Fila (espera+ativos)" value={(q.waiting ?? 0) + (q.active ?? 0)} />
       </div>
-      {clients.map((c: Client) => {
-        const tks = tokensOf(c.id);
-        return (
-          <section className="card" key={c.id}>
-            <div className="card-head">
-              <h2>{c.slug}</h2>
-              <StatusPill status={c.last_sync_status} />
-              <span className="sp" />
-              <span className="muted">{c.base_url}</span>
+
+      {/* Relatório do mês */}
+      <section className="card">
+        <div className="card-head"><h2>Relatório de {o.month.label}</h2><span className="sp" /><button className="ghost xs" onClick={() => loadOverview()}>↻ Atualizar</button></div>
+        <div className="row">
+          <Stat label="Clientes ativos no mês" value={`${o.active_clients_this_month} de ${o.clients.total}`} small />
+          <Stat label="Syncs no mês" value={o.syncs.this_month} small />
+          <Stat label="Sucesso no mês" value={o.syncs.ok_this_month} small />
+          <Stat label="Erros no mês" value={o.syncs.error_this_month} small />
+        </div>
+        <p className="muted" style={{ marginTop: 10 }}>
+          <b>{o.active_clients_this_month}</b> cliente(s) tiveram pelo menos um sync em <b>{o.month.label}</b>.
+          Fila agora: {q.waiting ?? 0} esperando · {q.active ?? 0} ativos · {q.completed ?? 0} concluídos · {q.failed ?? 0} falhos.
+        </p>
+      </section>
+
+      {/* Registros por recurso */}
+      <section className="card">
+        <div className="card-head"><h2>Registros por recurso</h2><span className="sp" /><span className="muted">{Number(o.records.total).toLocaleString("pt-BR")} no total</span></div>
+        {RESOURCE_LIST.map((r) => {
+          const n = (o.records.by_resource as any)[r] ?? 0;
+          return (
+            <div key={r} className="bar-row">
+              <span className="bar-label">{r}</span>
+              <div className="bar-track"><div className="bar-fill" style={{ width: `${(n / maxRec) * 100}%` }} /></div>
+              <span className="bar-val mono">{Number(n).toLocaleString("pt-BR")}</span>
             </div>
-            <div className="row" style={{ marginBottom: 14 }}>
-              <Stat label="Último sync" value={fmt(c.last_synced_at)} small />
-              <Stat label="Page size" value={c.page_size ?? "default"} small />
-              <Stat label="Lookback" value={`${c.lookback_days}d`} small />
-              <Stat label="Tokens" value={tks.length} small />
-            </div>
-            <div className="muted" style={{ marginBottom: 6 }}>Tokens deste cliente:</div>
-            {tks.length === 0
-              ? <div className="muted" style={{ marginBottom: 10 }}>nenhum — <button className="ghost xs" onClick={() => setView("tokens")}>gerar</button></div>
-              : <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>{tks.map((t: ApiToken) => <span key={t.id} className="pill on"><span className="dot" />{t.name} ({t.token_prefix}…)</span>)}</div>}
-            <div className="muted" style={{ marginBottom: 6 }}>Rotas e acesso do token na OPA (revalide p/ atualizar):</div>
-            <div className="tbl-wrap">
-              <table>
-                <thead><tr><th>Recurso</th><th>Rota (GET)</th><th>Acesso do token</th></tr></thead>
-                <tbody>
-                  {RESOURCE_LIST.map((r) => {
-                    const a = c.resource_access?.[r];
-                    const blk = c.blocked_resources?.includes(r);
-                    return (
-                      <tr key={r}>
-                        <td><b>{r}</b></td>
-                        <td className="mono">/api/data/{r}</td>
-                        <td>{blk ? <span className="pill off"><span className="dot" />bloqueado{a ? ` (${a.code})` : ""}</span> : a?.ok ? <span className="pill on"><span className="dot" />ok</span> : <span className="muted">não testado</span>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="muted" style={{ marginTop: 8 }}>Token escopo deste cliente: só retorna dados de <b>{c.slug}</b>. Rotas bloqueadas (401/403) ficam fora da fila até <b>revalidar</b>.</p>
-          </section>
-        );
-      })}
-      {clients.length === 0 && <div className="empty card">Nenhum cliente. Cadastre na aba Clientes.</div>}
+          );
+        })}
+      </section>
+
+      {/* Por cliente */}
+      <section className="card">
+        <div className="card-head"><h2>Por cliente</h2></div>
+        <div className="tbl-wrap">
+          <table>
+            <thead><tr><th>Cliente</th><th>Status</th><th>Syncs</th><th>No mês</th><th>Registros</th><th>Sucesso</th><th>Bloq.</th><th>Tokens</th><th>Último sync</th><th></th></tr></thead>
+            <tbody>
+              {o.per_client.map((c: any) => (
+                <tr key={c.id}>
+                  <td><b>{c.slug}</b>{!c.active && <span className="muted"> (inativo)</span>}</td>
+                  <td><StatusPill status={c.last_sync_status} /></td>
+                  <td>{c.sync_count}</td>
+                  <td>{c.syncs_this_month}</td>
+                  <td className="mono">{Number(c.total_upserted).toLocaleString("pt-BR")}</td>
+                  <td>{c.ok_rate === null ? <span className="muted">—</span> : <span className={c.ok_rate >= 80 ? "" : ""} style={{ color: c.ok_rate >= 80 ? "var(--ok)" : c.ok_rate >= 50 ? "var(--warn)" : "var(--danger)" }}>{c.ok_rate}%</span>}</td>
+                  <td>{c.blocked > 0 ? <span className="pill off">{c.blocked}</span> : "—"}</td>
+                  <td>{c.tokens}</td>
+                  <td className="muted">{fmt(c.last_synced_at)}</td>
+                  <td className="actions"><button className="sec xs" onClick={() => syncNow(c.id)}>Sync</button><button className="ghost xs" onClick={() => revalidate(c.id)}>Revalidar</button></td>
+                </tr>
+              ))}
+              {o.per_client.length === 0 && <tr><td colSpan={10} className="empty">Nenhum cliente.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Runs recentes */}
+      <section className="card">
+        <div className="card-head"><h2>Syncs recentes</h2></div>
+        <div className="tbl-wrap">
+          <table>
+            <thead><tr><th>Quando</th><th>Cliente</th><th>Tipo</th><th>Status</th><th>Recursos</th><th>OK / Erro</th><th>Upserted</th></tr></thead>
+            <tbody>
+              {o.recent_runs.map((r: any) => (
+                <tr key={r.id}>
+                  <td className="muted">{fmt(r.started_at)}</td>
+                  <td>{slugOf(r.client_id)}</td>
+                  <td>{r.is_full ? <span className="pill running">full</span> : <span className="muted">incr.</span>}</td>
+                  <td><span className={`pill ${r.status === "ok" ? "ok" : "error"}`}><span className="dot" />{r.status}</span></td>
+                  <td>{r.resources_count}</td>
+                  <td><span style={{ color: "var(--ok)" }}>{r.ok_count}</span> / <span style={{ color: r.error_count ? "var(--danger)" : "var(--muted)" }}>{r.error_count}</span></td>
+                  <td className="mono">{Number(r.total_upserted).toLocaleString("pt-BR")}</td>
+                </tr>
+              ))}
+              {o.recent_runs.length === 0 && <tr><td colSpan={7} className="empty">Nenhum sync ainda.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   );
 }
