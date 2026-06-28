@@ -1,5 +1,6 @@
 import { withApiAuth, json, error } from "@/lib/http";
 import * as repo from "@/lib/repo";
+import { config } from "@/lib/config";
 import { isValidResource, RESOURCE_KEYS } from "@/lib/resources";
 import { cacheGet, cacheSet, buildDataKey } from "@/lib/cache";
 
@@ -7,6 +8,24 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_LIMIT = 1000;
+
+// Estratégia de cache: dados FINAIS (sem atualização há >X dias OU com início e
+// fim preenchidos) não mudam mais → TTL longo. O resto usa o TTL curto padrão.
+function isFinalResult(rows: any[], resource: string, finalDays: number): boolean {
+  if (!rows.length) return false;
+  const cutoff = Date.now() - finalDays * 86400_000;
+  return rows.every((r) => {
+    const stale = r.synced_at && Date.parse(r.synced_at) < cutoff;
+    const closed = resource === "atendimentos" && r.aberto_em && r.encerrado_em;
+    return stale || closed;
+  });
+}
+
+async function cachedSettings() {
+  let s = cacheGet<Record<string, any>>("settings:cfg");
+  if (!s) { s = await repo.getSettings(); cacheSet("settings:cfg", s, 15); }
+  return s;
+}
 const OPS = new Set(["eq", "neq", "like", "ilike", "gt", "gte", "lt", "lte"]);
 // Campo: coluna tipada OU campo do raw, inclusive caminho aninhado (a.b.c).
 const FIELD_RE = /^[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/;
@@ -73,6 +92,13 @@ export const GET = withApiAuth(async (req, { params }, principal) => {
     },
     data: rows,
   };
-  cacheSet(cacheKey, body);
+
+  // TTL adaptativo: dados finais ficam muito mais tempo em cache.
+  const s = await cachedSettings();
+  const finalDays = Number(s.cache_final_days ?? 7);
+  const ttl = isFinalResult(rows as any[], resource, finalDays)
+    ? Number(s.cache_final_ttl_hours ?? 24) * 3600
+    : config.cacheTtlSeconds();
+  cacheSet(cacheKey, body, ttl);
   return json(body);
 });

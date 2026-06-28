@@ -68,6 +68,8 @@ export function parseClientUpdate(body: any): Record<string, unknown> {
   if (body.sync_interval_minutes !== undefined)
     patch.sync_interval_minutes = Number(body.sync_interval_minutes);
   if (body.lookback_days !== undefined) patch.lookback_days = Number(body.lookback_days);
+  if (body.disabled_resources !== undefined && Array.isArray(body.disabled_resources))
+    patch.disabled_resources = body.disabled_resources.map(String);
   if (body.extra_filters !== undefined) patch.extra_filters = body.extra_filters;
   // token tratado à parte (criptografia) no handler
   return patch;

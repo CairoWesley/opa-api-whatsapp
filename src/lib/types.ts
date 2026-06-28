@@ -13,6 +13,7 @@ export type ClientRow = {
   sync_interval_minutes: number;
   lookback_days: number;
   blocked_resources: string[];
+  disabled_resources: string[];
   resource_access: Record<string, { ok: boolean; code: number; at: string }>;
   extra_filters: Record<string, Record<string, unknown>>;
   last_synced_at: string | null;

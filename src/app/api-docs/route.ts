@@ -14,7 +14,18 @@ const HTML = `<!doctype html>
   <style>
     body { margin: 0; background: #0f172a; }
     .topbar { display: none; }
-    #swagger-ui { max-width: 1200px; margin: 0 auto; }
+    #swagger-ui { max-width: 1100px; margin: 0 auto; }
+    /* Fonte da descrição/markdown menor e mais legível */
+    .swagger-ui .info .title { font-size: 26px; }
+    .swagger-ui .info .markdown p,
+    .swagger-ui .info .markdown li,
+    .swagger-ui .renderedMarkdown p,
+    .swagger-ui .renderedMarkdown li { font-size: 13px; line-height: 1.55; }
+    .swagger-ui .info .markdown code,
+    .swagger-ui .renderedMarkdown code,
+    .swagger-ui code { font-size: 11.5px; padding: 1px 5px; line-height: 1.4; }
+    .swagger-ui .info h1, .swagger-ui .info h2 { font-size: 17px; margin: 14px 0 6px; }
+    .swagger-ui .info .markdown ul { margin: 6px 0; }
   </style>
 </head>
 <body>

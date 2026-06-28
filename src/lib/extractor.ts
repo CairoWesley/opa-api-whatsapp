@@ -87,9 +87,9 @@ export async function syncClient(
 
   const startedAt = new Date().toISOString();
   const requested = resources?.length ? resources : RESOURCE_KEYS;
-  // Pula recursos BLOQUEADOS (deram 401/403) até serem revalidados no painel.
-  const blocked = new Set(client.blocked_resources ?? []);
-  const keys = requested.filter((k) => !blocked.has(k));
+  // Pula recursos BLOQUEADOS (401/403, até revalidar) e DESABILITADOS (escolha do admin).
+  const skip = new Set([...(client.blocked_resources ?? []), ...(client.disabled_resources ?? [])]);
+  const keys = requested.filter((k) => !skip.has(k));
   // 1º sync (nunca sincronizado) = FULL automático. Override ignora full.
   const full = !override && (forceFull === true || client.last_synced_at == null);
   await repo.setSyncState(clientId, "running");

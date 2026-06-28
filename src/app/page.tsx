@@ -6,7 +6,7 @@ type Client = {
   id: string; slug: string; name: string; base_url: string; company_id: string | null; active: boolean;
   insecure_tls: boolean; page_size: number | null; timeout_ms: number | null;
   lookback_days: number; sync_interval_minutes: number;
-  blocked_resources: string[]; resource_access: Record<string, { ok: boolean; code: number; at: string }>;
+  blocked_resources: string[]; disabled_resources: string[]; resource_access: Record<string, { ok: boolean; code: number; at: string }>;
   last_sync_status: string | null; last_sync_error: string | null; last_synced_at: string | null;
 };
 type ResourceMeta = { key: string; filters: string[] };
@@ -553,14 +553,16 @@ function EditClient({ client, onCancel, onSave }: { client: Client; onCancel: ()
     page_size: client.page_size ?? "", timeout_ms: client.timeout_ms ?? "",
     insecure_tls: client.insecure_tls, token: "",
   });
+  const [disabled, setDisabled] = useState<string[]>(client.disabled_resources ?? []);
   const set = (k: string, v: any) => setF({ ...f, [k]: v });
+  const toggleRes = (r: string) => setDisabled(disabled.includes(r) ? disabled.filter((x) => x !== r) : [...disabled, r]);
   const submit = () => {
     const patch: any = {
       name: f.name, base_url: f.base_url, company_id: f.company_id || null,
       lookback_days: Number(f.lookback_days), sync_interval_minutes: Number(f.sync_interval_minutes),
       page_size: f.page_size === "" ? null : Number(f.page_size),
       timeout_ms: f.timeout_ms === "" ? null : Number(f.timeout_ms),
-      insecure_tls: f.insecure_tls,
+      insecure_tls: f.insecure_tls, disabled_resources: disabled,
     };
     if (f.token.trim()) patch.token = f.token.trim();
     onSave(patch);
@@ -578,6 +580,18 @@ function EditClient({ client, onCancel, onSave }: { client: Client; onCancel: ()
         <Field label="Timeout (ms)" type="number" value={String(f.timeout_ms)} onChange={(v: string) => set("timeout_ms", v)} ph="default (env)" />
         <Field label="Trocar token OPA" type="password" value={f.token} onChange={(v: string) => set("token", v)} ph="deixe vazio p/ manter" />
         <div><label>Segurança TLS</label><label className="chk"><input type="checkbox" checked={f.insecure_tls} onChange={(e) => set("insecure_tls", e.target.checked)} /><span>Ignorar certificado</span></label></div>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <label>Rotas a NÃO sincronizar (desabilitadas)</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+          {RESOURCE_LIST.map((r) => (
+            <label key={r} className="chk" style={{ padding: "4px 8px", border: "1px solid var(--line)", borderRadius: "var(--r2)", background: disabled.includes(r) ? "rgba(244,63,94,.12)" : "transparent" }}>
+              <input type="checkbox" checked={disabled.includes(r)} onChange={() => toggleRes(r)} />
+              <span>{r}</span>
+            </label>
+          ))}
+        </div>
+        <p className="muted" style={{ marginTop: 6 }}>Marcadas não entram na fila de sync deste cliente.</p>
       </div>
       <div style={{ marginTop: 16 }}><button onClick={submit}>Salvar configurações</button></div>
     </section>
@@ -765,6 +779,19 @@ function ConfigView(p: any) {
         <input type="number" min={1} defaultValue={s.revalidate_hours}
           onBlur={(e) => saveSettings({ revalidate_hours: Number(e.target.value) })} />
         <p className="muted" style={{ marginTop: 6 }}>Intervalo mínimo entre revalidações de um cliente.</p>
+      </div>
+
+      <div className="card-head" style={{ marginTop: 22 }}><h2>Cache de dados finais</h2></div>
+      <p className="card-desc">Registros que não mudam mais ficam em cache por muito mais tempo: sem atualização há X dias <b>ou</b> (atendimentos) com início e fim preenchidos.</p>
+      <div className="row" style={{ maxWidth: 520 }}>
+        <div>
+          <label>Considerar final após (dias sem atualizar)</label>
+          <input type="number" min={1} defaultValue={s.cache_final_days} onBlur={(e) => saveSettings({ cache_final_days: Number(e.target.value) })} />
+        </div>
+        <div>
+          <label>TTL do cache final (horas)</label>
+          <input type="number" min={1} defaultValue={s.cache_final_ttl_hours} onBlur={(e) => saveSettings({ cache_final_ttl_hours: Number(e.target.value) })} />
+        </div>
       </div>
     </section>
   );

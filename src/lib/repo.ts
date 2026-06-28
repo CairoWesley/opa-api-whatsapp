@@ -12,7 +12,7 @@ export type DocFilter = { field: string; op: string; value: string };
 
 const CLIENT_COLS =
   "id, slug, name, base_url, company_id, active, insecure_tls, page_size, timeout_ms, " +
-  "sync_interval_minutes, lookback_days, blocked_resources, resource_access, extra_filters, " +
+  "sync_interval_minutes, lookback_days, blocked_resources, disabled_resources, resource_access, extra_filters, " +
   "last_synced_at, last_sync_status, last_sync_error, created_at, updated_at";
 
 const nowIso = () => new Date().toISOString();
