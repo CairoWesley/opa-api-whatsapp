@@ -7,6 +7,7 @@ export type ClientRow = {
   base_url: string;
   company_id: string | null;
   active: boolean;
+  insecure_tls: boolean;
   sync_interval_minutes: number;
   lookback_days: number;
   extra_filters: Record<string, Record<string, unknown>>;

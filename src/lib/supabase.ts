@@ -1,5 +1,4 @@
 // Cliente Supabase server-side (service role — bypassa RLS).
-import "server-only";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { config } from "./config";
 

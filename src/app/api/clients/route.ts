@@ -32,6 +32,7 @@ export const POST = withAdmin(async (req) => {
       token_encrypted: encryptToken(input.token),
       company_id: input.company_id,
       active: input.active,
+      insecure_tls: input.insecure_tls,
       sync_interval_minutes: input.sync_interval_minutes,
       lookback_days: input.lookback_days,
       extra_filters: input.extra_filters,

@@ -35,7 +35,7 @@ export default function AdminPage() {
 
   // form novo cliente
   const [form, setForm] = useState({
-    slug: "", name: "", base_url: "", token: "", company_id: "", lookback_days: 30, sync_interval_minutes: 30,
+    slug: "", name: "", base_url: "", token: "", company_id: "", lookback_days: 30, sync_interval_minutes: 30, insecure_tls: false,
   });
 
   // explorar dados
@@ -160,7 +160,7 @@ export default function AdminPage() {
     try {
       await api("/clients", { method: "POST", body: JSON.stringify(form) });
       notify("Cliente criado");
-      setForm({ ...form, slug: "", name: "", base_url: "", token: "", company_id: "" });
+      setForm({ ...form, slug: "", name: "", base_url: "", token: "", company_id: "", insecure_tls: false });
       loadClients();
     } catch (e) {
       notify((e as Error).message, false);
@@ -187,11 +187,12 @@ export default function AdminPage() {
     }
   };
 
-  const syncNow = async (id: string) => {
-    notify("Sincronizando em background...");
+  const syncNow = async (id: string, full = false) => {
+    notify(full ? "Full sync enfileirado..." : "Sync enfileirado...");
     try {
-      await api(`/sync/clients/${id}?wait=false`, { method: "POST" });
-      setTimeout(loadClients, 2000);
+      await api(`/sync/clients/${id}${full ? "?full=true" : ""}`, { method: "POST" });
+      setTimeout(loadClients, 1500);
+      setTimeout(loadClients, 5000);
     } catch (e) {
       notify((e as Error).message, false);
     }
@@ -325,6 +326,17 @@ export default function AdminPage() {
             <Field label="company_id" value={form.company_id} onChange={(v) => setForm({ ...form, company_id: v })} ph="opcional" />
             <Field label="Lookback (dias)" type="number" value={String(form.lookback_days)} onChange={(v) => setForm({ ...form, lookback_days: Number(v) })} />
             <Field label="Intervalo sync (min)" type="number" value={String(form.sync_interval_minutes)} onChange={(v) => setForm({ ...form, sync_interval_minutes: Number(v) })} />
+            <div>
+              <label>Segurança TLS</label>
+              <label className="chk">
+                <input
+                  type="checkbox"
+                  checked={form.insecure_tls}
+                  onChange={(e) => setForm({ ...form, insecure_tls: e.target.checked })}
+                />
+                <span>Ignorar verificação de certificado</span>
+              </label>
+            </div>
           </div>
           <div style={{ marginTop: 12 }}>
             <button onClick={createClient}>Criar cliente</button>
@@ -353,6 +365,7 @@ export default function AdminPage() {
                   <td className="muted">{c.last_synced_at ? new Date(c.last_synced_at).toLocaleString("pt-BR") : "—"}</td>
                   <td className="actions">
                     <button className="sec" onClick={() => syncNow(c.id)}>Sync</button>
+                    <button className="sec" onClick={() => syncNow(c.id, true)}>Full</button>
                     {c.active ? (
                       <button className="warn" onClick={() => toggle(c.id, "deactivate")}>Inativar</button>
                     ) : (

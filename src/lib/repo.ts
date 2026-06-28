@@ -1,15 +1,15 @@
 // Acesso de dados ao Supabase (CRUD de clientes, upsert de documentos, logs).
-import "server-only";
 import { supabaseAdmin } from "./supabase";
 import { config } from "./config";
 import { hashPassword } from "./session";
+import { tableFor, typedColumns, mapTypedColumns } from "./mappers";
 import type { ClientRow, ClientSecretRow } from "./types";
 import type { OpaDoc } from "./opa-client";
 
 export type DashUser = { id: string; username: string; password_hash: string; active: boolean };
 
 const CLIENT_COLUMNS =
-  "id, slug, name, base_url, company_id, active, sync_interval_minutes, " +
+  "id, slug, name, base_url, company_id, active, insecure_tls, sync_interval_minutes, " +
   "lookback_days, extra_filters, last_synced_at, last_sync_status, " +
   "last_sync_error, created_at, updated_at";
 
@@ -85,7 +85,7 @@ export async function setSyncState(
   if (error) throw error;
 }
 
-// ── Documentos ──────────────────────────────────────────────────────────────
+// ── Documentos (uma tabela por recurso, colunas tipadas + raw) ───────────────
 export async function upsertDocuments(
   clientId: string,
   resource: string,
@@ -97,24 +97,32 @@ export async function upsertDocuments(
     .map((d) => {
       const externalId = String(d._id ?? d.id ?? "");
       if (!externalId) return null;
-      return { client_id: clientId, resource, external_id: externalId, raw: d, synced_at: synced };
+      return {
+        client_id: clientId,
+        external_id: externalId,
+        ...mapTypedColumns(resource, d),
+        raw: d,
+        synced_at: synced,
+      };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
   if (rows.length === 0) return 0;
   const { error } = await supabaseAdmin()
-    .from("opa_documents")
-    .upsert(rows, { onConflict: "client_id,resource,external_id" });
+    .from(tableFor(resource))
+    .upsert(rows, { onConflict: "client_id,external_id" });
   if (error) throw error;
   return rows.length;
 }
 
 export type DocFilter = { field: string; op: string; value: string };
 
-// Campos que são COLUNA (filtro direto); o resto vai no raw->>'campo'.
-const COLUMN_FIELDS = new Set(["external_id", "synced_at", "client_id", "resource"]);
+// Colunas-base presentes em toda tabela de recurso.
+const BASE_COLUMNS = new Set(["external_id", "synced_at", "client_id", "id"]);
 
-function colRef(field: string): string {
-  return COLUMN_FIELDS.has(field) ? field : `raw->>${field}`;
+// Decide se o filtro/ordenação bate numa COLUNA tipada (rápido) ou no raw->>.
+function colRef(resource: string, field: string): string {
+  if (BASE_COLUMNS.has(field) || typedColumns(resource).includes(field)) return field;
+  return `raw->>${field}`;
 }
 
 export async function queryDocuments(
@@ -127,13 +135,12 @@ export async function queryDocuments(
   orderBy = "synced_at",
 ): Promise<{ rows: unknown[]; total: number }> {
   let q = supabaseAdmin()
-    .from("opa_documents")
-    .select("id, client_id, resource, external_id, raw, synced_at", { count: "exact" })
-    .eq("resource", resource);
+    .from(tableFor(resource))
+    .select("*", { count: "exact" });
   if (clientId) q = q.eq("client_id", clientId);
 
   for (const f of filters) {
-    const col = colRef(f.field);
+    const col = colRef(resource, f.field);
     switch (f.op) {
       case "eq": q = q.eq(col, f.value); break;
       case "neq": q = q.neq(col, f.value); break;
@@ -147,7 +154,7 @@ export async function queryDocuments(
     }
   }
 
-  const orderCol = orderBy === "synced_at" || COLUMN_FIELDS.has(orderBy) ? orderBy : `raw->>${orderBy}`;
+  const orderCol = colRef(resource, orderBy);
   const { data, error, count } = await q
     .order(orderCol, { ascending: !orderDesc })
     .range(offset, offset + limit - 1);

@@ -8,6 +8,7 @@ export type ClientInput = {
   token: string;
   company_id: string | null;
   active: boolean;
+  insecure_tls: boolean;
   sync_interval_minutes: number;
   lookback_days: number;
   extra_filters: Record<string, unknown>;
@@ -35,6 +36,7 @@ export function parseClientCreate(body: any): ClientInput {
     token,
     company_id: body.company_id ? String(body.company_id) : null,
     active: body.active ?? true,
+    insecure_tls: Boolean(body.insecure_tls ?? false),
     sync_interval_minutes: Number(body.sync_interval_minutes ?? 30),
     lookback_days: Number(body.lookback_days ?? 30),
     extra_filters: body.extra_filters ?? {},
@@ -49,6 +51,7 @@ export function parseClientUpdate(body: any): Record<string, unknown> {
   if (body.base_url !== undefined) patch.base_url = normalizeBaseUrl(body.base_url);
   if (body.company_id !== undefined) patch.company_id = body.company_id ? String(body.company_id) : null;
   if (body.active !== undefined) patch.active = Boolean(body.active);
+  if (body.insecure_tls !== undefined) patch.insecure_tls = Boolean(body.insecure_tls);
   if (body.sync_interval_minutes !== undefined)
     patch.sync_interval_minutes = Number(body.sync_interval_minutes);
   if (body.lookback_days !== undefined) patch.lookback_days = Number(body.lookback_days);

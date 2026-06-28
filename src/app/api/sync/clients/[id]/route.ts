@@ -1,19 +1,17 @@
 import { withAdmin, json, error } from "@/lib/http";
 import * as repo from "@/lib/repo";
-import { syncClient } from "@/lib/extractor";
+import { enqueueSync } from "@/lib/queue";
 import { RESOURCE_KEYS } from "@/lib/resources";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // sync pode ser demorado
 
-// POST /api/sync/clients/:id?wait=true&resources=atendimentos,contatos&full=true
-// Body opcional: { filter: { ... } }  -> sobrescreve o filtro do recurso (query custom).
-// O 1º sync de um cliente é SEMPRE full automaticamente; `full=true` força de novo.
+// POST /api/sync/clients/:id?resources=atendimentos,contatos&full=true
+// Enfileira o sync (processado pelo worker). O 1º sync é full automaticamente;
+// `full=true` força full de novo.
 export const POST = withAdmin(async (req, { params }) => {
   const url = new URL(req.url);
-  const wait = url.searchParams.get("wait") !== "false"; // default: aguarda
-  const full = url.searchParams.get("full") === "true"; // força sync full
+  const full = url.searchParams.get("full") === "true";
   const resourcesParam = url.searchParams.get("resources");
   const resources = resourcesParam ? resourcesParam.split(",").map((s) => s.trim()) : undefined;
 
@@ -23,14 +21,7 @@ export const POST = withAdmin(async (req, { params }) => {
     if (invalid.length) return error(`Recursos inválidos: ${invalid.join(", ")}`, 400);
   }
 
-  const body = await req.json().catch(() => null);
-  const override = body && typeof body === "object" && body.filter ? body.filter : undefined;
-
-  if (!wait) {
-    // dispara sem bloquear a resposta
-    void syncClient(params.id, resources, override, full).catch(() => {});
-    return json({ client_id: params.id, status: "scheduled" }, 202);
-  }
-  const result = await syncClient(params.id, resources, override, full);
-  return json(result);
+  await repo.setSyncState(params.id, "queued");
+  const jobId = await enqueueSync({ clientId: params.id, resources, full });
+  return json({ client_id: params.id, status: "queued", job_id: jobId }, 202);
 });

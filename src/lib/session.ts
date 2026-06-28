@@ -1,7 +1,6 @@
 // Sessão do dashboard: hash de senha (scrypt) + cookie assinado (HMAC).
 // Sem dependência externa — tudo via node:crypto. Stateless: o cookie carrega
 // {uid, username, exp} assinado; não há tabela de sessões.
-import "server-only";
 import {
   scryptSync,
   randomBytes,

@@ -2,7 +2,6 @@
 //   1. API / programático (Power BI, scripts): Authorization: Bearer <APP_ADMIN_TOKEN>
 //      (ou header x-api-token).
 //   2. Dashboard gerencial: cookie de sessão assinado, emitido no login usuário/senha.
-import "server-only";
 import { timingSafeEqual } from "node:crypto";
 import { config } from "./config";
 import { readSessionCookie, verifySession } from "./session";

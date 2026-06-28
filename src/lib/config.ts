@@ -1,5 +1,4 @@
 // Configuração central, lida de variáveis de ambiente (server-side).
-import "server-only";
 
 function required(name: string): string {
   const v = process.env[name];

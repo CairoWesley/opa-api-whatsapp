@@ -7,7 +7,6 @@
 //
 // Usa node:https/http diretamente porque o fetch do Node (undici) PROÍBE
 // corpo em requisições GET, que esta API exige.
-import "server-only";
 import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
@@ -25,6 +24,7 @@ export type OpaClientOptions = {
   token: string;
   pageSize?: number;
   timeoutMs?: number;
+  insecureTls?: boolean; // ignora verificação de cert TLS (hosts com cert inválido)
 };
 
 export class OpaClient {
@@ -32,6 +32,7 @@ export class OpaClient {
   private token: string;
   private pageSize: number;
   private timeoutMs: number;
+  private insecureTls: boolean;
 
   constructor(opts: OpaClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
@@ -41,6 +42,7 @@ export class OpaClient {
     this.token = t;
     this.pageSize = opts.pageSize ?? 500;
     this.timeoutMs = opts.timeoutMs ?? 30000;
+    this.insecureTls = opts.insecureTls ?? false;
   }
 
   private request(path: string, payload: unknown): Promise<unknown> {
@@ -58,6 +60,8 @@ export class OpaClient {
         "Content-Length": Buffer.byteLength(body),
       },
       timeout: this.timeoutMs,
+      // Só afeta HTTPS; ignora cert inválido quando habilitado por cliente.
+      ...(url.protocol === "https:" && this.insecureTls ? { rejectUnauthorized: false } : {}),
     };
 
     return new Promise((resolve, reject) => {

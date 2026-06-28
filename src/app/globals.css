@@ -24,6 +24,8 @@ th { color: var(--muted); font-weight: 600; }
 .on { background: #064e3b; color: #6ee7b7; }
 .off { background: #4c0519; color: #fda4af; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--txt); padding: 7px 0; }
+.chk input { width: auto; }
 .muted { color: var(--muted); font-size: 12px; }
 .spacer { flex: 1; }
 pre { background: #0b1220; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; max-height: 360px; font-size: 12px; }

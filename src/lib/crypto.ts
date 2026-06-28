@@ -1,5 +1,4 @@
 // Criptografia simétrica (AES-256-GCM) dos tokens OPA em repouso.
-import "server-only";
 import {
   createCipheriv,
   createDecipheriv,

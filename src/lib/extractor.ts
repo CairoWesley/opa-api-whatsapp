@@ -1,6 +1,5 @@
 // Lógica de extração (sync) multi-cliente OPA Suite -> Supabase.
 // Espelha a DAG de produção: itera recursos, pagina por skip/limit, upsert por _id.
-import "server-only";
 import { config } from "./config";
 import { cacheInvalidatePrefix, cacheSet, buildDataKey } from "./cache";
 import { decryptToken } from "./crypto";
@@ -82,6 +81,7 @@ export async function syncClient(
     token,
     pageSize: config.opaPageSize(),
     timeoutMs: config.opaTimeoutMs(),
+    insecureTls: client.insecure_tls,
   });
 
   const results: ResourceSyncResult[] = [];

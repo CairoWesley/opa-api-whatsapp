@@ -1,7 +1,6 @@
 // Catálogo da documentação do projeto, servida DENTRO do dashboard admin.
 // Os .md ficam no repositório; aqui são lidos do filesystem e convertidos para
 // HTML (marked). Whitelist por slug — sem path traversal.
-import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { marked } from "marked";

@@ -1,18 +1,19 @@
 import { withAdmin, json } from "@/lib/http";
-import { syncAllActive } from "@/lib/extractor";
+import * as repo from "@/lib/repo";
+import { enqueueSync } from "@/lib/queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
 
-// POST /api/sync/all?wait=false
-// Sincroniza todos os clientes ativos. Ideal para um cron (ex: Vercel Cron).
+// POST /api/sync/all?full=true — enfileira o sync de todos os clientes ativos.
 export const POST = withAdmin(async (req) => {
-  const wait = new URL(req.url).searchParams.get("wait") === "true";
-  if (!wait) {
-    void syncAllActive().catch(() => {});
-    return json({ status: "scheduled" }, 202);
+  const full = new URL(req.url).searchParams.get("full") === "true";
+  const clients = await repo.listClients(true);
+  const jobs: { client_id: string; job_id: string }[] = [];
+  for (const c of clients) {
+    await repo.setSyncState(c.id, "queued");
+    const jobId = await enqueueSync({ clientId: c.id, full });
+    jobs.push({ client_id: c.id, job_id: jobId });
   }
-  const results = await syncAllActive();
-  return json({ status: "ok", results });
+  return json({ status: "queued", count: jobs.length, jobs }, 202);
 });
