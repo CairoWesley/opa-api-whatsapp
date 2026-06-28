@@ -20,6 +20,7 @@ export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [booting, setBooting] = useState(true);
   const [view, setView] = useState<View>("dashboard");
+  const [restored, setRestored] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -84,6 +85,30 @@ export default function AdminPage() {
   useEffect(() => {
     fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.authenticated) { setAuthed(true); setMe(d.username || "API"); } }).finally(() => setBooting(false));
   }, []);
+
+  // Restaura o estado do painel (onde você estava) após F5.
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("opa_ui") || "{}");
+      if (s.view) setView(s.view);
+      if (s.dRes) setDRes(s.dRes);
+      if (s.dClient) setDClient(s.dClient);
+      if (typeof s.dLimit === "number") setDLimit(s.dLimit);
+      if (typeof s.dPage === "number") setDPage(s.dPage);
+      if (typeof s.dFilter === "string") setDFilter(s.dFilter);
+      if (s.logClient) setLogClient(s.logClient);
+      if (s.newTokClient) setNewTokClient(s.newTokClient);
+    } catch { /* ignora */ }
+    setRestored(true);
+  }, []);
+
+  // Salva o estado a cada mudança (depois de restaurar, p/ não sobrescrever).
+  useEffect(() => {
+    if (!restored) return;
+    try {
+      localStorage.setItem("opa_ui", JSON.stringify({ view, dRes, dClient, dLimit, dPage, dFilter, logClient, newTokClient }));
+    } catch { /* ignora */ }
+  }, [restored, view, dRes, dClient, dLimit, dPage, dFilter, logClient, newTokClient]);
 
   useEffect(() => { if (authed) { loadClients().catch((e) => notify(e.message, false)); loadResources().catch(() => {}); } }, [authed, loadClients, loadResources]);
   useEffect(() => { if (authed && (view === "tokens" || view === "dashboard")) loadTokens().catch((e) => notify(e.message, false)); }, [authed, view, loadTokens]);
