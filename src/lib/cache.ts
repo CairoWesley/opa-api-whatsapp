@@ -5,6 +5,26 @@ import { config } from "./config";
 type Entry = { value: unknown; expiresAt: number };
 const store = new Map<string, Entry>();
 
+// Chave canônica da read API. Rota e cache-warm usam ESTA função para bater.
+// Inclui filtros + ordenação — senão filtros diferentes serviriam dados errados.
+export type DataKeyParts = {
+  clientId: string | null;
+  resource: string;
+  limit: number;
+  offset: number;
+  orderBy: string;
+  orderDesc: boolean;
+  filters: { field: string; op: string; value: string }[];
+};
+
+export function buildDataKey(p: DataKeyParts): string {
+  const f = p.filters
+    .map((x) => `${x.field}${x.op}${x.value}`)
+    .sort()
+    .join("|");
+  return `data:${p.clientId ?? "*"}:${p.resource}:${p.limit}:${p.offset}:${p.orderBy}:${p.orderDesc}:${f}`;
+}
+
 export function cacheGet<T>(key: string): T | null {
   const e = store.get(key);
   if (!e) return null;

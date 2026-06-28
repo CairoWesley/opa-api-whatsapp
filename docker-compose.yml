@@ -31,6 +31,7 @@ services:
       - ./supabase/migrations/0001_init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ./supabase/migrations/0002_dashboard_users.sql:/docker-entrypoint-initdb.d/01b-users.sql:ro
       - ./docker/postgres/02-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
+      - ./supabase/migrations/0003_indexes.sql:/docker-entrypoint-initdb.d/03-indexes.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s

@@ -2,7 +2,7 @@
 // Espelha a DAG de produção: itera recursos, pagina por skip/limit, upsert por _id.
 import "server-only";
 import { config } from "./config";
-import { cacheInvalidatePrefix } from "./cache";
+import { cacheInvalidatePrefix, cacheSet, buildDataKey } from "./cache";
 import { decryptToken } from "./crypto";
 import { OpaClient, OpaError, type OpaDoc } from "./opa-client";
 import { getResource, RESOURCE_KEYS, type Resource } from "./resources";
@@ -11,41 +11,48 @@ import type { ClientSecretRow, ResourceSyncResult, SyncResult } from "./types";
 
 const BATCH = 500;
 
-// Precedência do filtro: override (query) > extra_filters do cliente > janela incremental.
-function buildFilter(
+// Monta as PASSADAS de filtro de um recurso.
+//   - override (query custom): 1 passada exatamente com o filtro dado.
+//   - full = true (1º sync ou forçado): 1 passada SEM data → puxa tudo.
+//   - incremental: 1 passada por campo de data (abertura/encerramento), cada
+//     uma com `campo >= since`. O upsert por _id mescla/deduplica.
+function buildPasses(
   resource: Resource,
   client: ClientSecretRow,
+  full: boolean,
   override?: Record<string, unknown>,
-): Record<string, unknown> {
-  if (override) return override;
-  const extra = (client.extra_filters ?? {})[resource.key] ?? {};
-  const filter: Record<string, unknown> = { ...extra };
-  if (resource.dateFilter && !(resource.dateFilter in filter)) {
-    const lookback = client.lookback_days || config.defaultLookbackDays();
-    const since = new Date(Date.now() - lookback * 86400_000).toISOString().slice(0, 10);
-    filter[resource.dateFilter] = since;
-  }
-  return filter;
+): Record<string, unknown>[] {
+  if (override) return [override];
+
+  const base = (client.extra_filters ?? {})[resource.key] ?? {};
+  if (full || !resource.incrementalDates?.length) return [{ ...base }];
+
+  const lookback = client.lookback_days || config.defaultLookbackDays();
+  const since = new Date(Date.now() - lookback * 86400_000).toISOString().slice(0, 10);
+  return resource.incrementalDates.map((field) => ({ ...base, [field]: since }));
 }
 
 async function syncResource(
   opa: OpaClient,
   client: ClientSecretRow,
   resource: Resource,
+  full: boolean,
   override?: Record<string, unknown>,
 ): Promise<ResourceSyncResult> {
-  const filter = buildFilter(resource, client, override);
+  const passes = buildPasses(resource, client, full, override);
   let total = 0;
-  let batch: OpaDoc[] = [];
   try {
-    for await (const doc of opa.iterDocuments(resource.path, filter)) {
-      batch.push(doc);
-      if (batch.length >= BATCH) {
-        total += await repo.upsertDocuments(client.id, resource.key, batch);
-        batch = [];
+    for (const filter of passes) {
+      let batch: OpaDoc[] = [];
+      for await (const doc of opa.iterDocuments(resource.path, filter)) {
+        batch.push(doc);
+        if (batch.length >= BATCH) {
+          total += await repo.upsertDocuments(client.id, resource.key, batch);
+          batch = [];
+        }
       }
+      if (batch.length) total += await repo.upsertDocuments(client.id, resource.key, batch);
     }
-    if (batch.length) total += await repo.upsertDocuments(client.id, resource.key, batch);
     await repo.insertSyncLog(client.id, resource.key, "ok", total, null);
     return { resource: resource.key, status: "ok", records_upserted: total };
   } catch (err) {
@@ -59,11 +66,14 @@ export async function syncClient(
   clientId: string,
   resources?: string[],
   override?: Record<string, unknown>,
+  forceFull?: boolean,
 ): Promise<SyncResult> {
   const client = await repo.getClientSecret(clientId);
   if (!client) throw new Error(`Cliente ${clientId} não encontrado`);
 
   const keys = resources?.length ? resources : RESOURCE_KEYS;
+  // 1º sync (nunca sincronizado) = FULL automático. Override ignora full.
+  const full = !override && (forceFull === true || client.last_synced_at == null);
   await repo.setSyncState(clientId, "running");
 
   const token = decryptToken(client.token_encrypted);
@@ -78,7 +88,7 @@ export async function syncClient(
   let hadError = false;
   try {
     for (const key of keys) {
-      const res = await syncResource(opa, client, getResource(key), override);
+      const res = await syncResource(opa, client, getResource(key), full, override);
       results.push(res);
       if (res.status === "error") hadError = true;
     }
@@ -95,6 +105,7 @@ export async function syncClient(
       .join("; ") || null;
   await repo.setSyncState(clientId, status, errSummary, true);
   cacheInvalidatePrefix(`data:${clientId}:`);
+  await warmClientCache(clientId, keys).catch(() => {});
 
   return {
     client_id: clientId,
@@ -103,6 +114,39 @@ export async function syncClient(
     resources: results,
     total_upserted: results.reduce((a, r) => a + r.records_upserted, 0),
   };
+}
+
+// Pré-carrega o cache da 1ª página (limit 100, mais recentes) de cada recurso
+// sincronizado, batendo a chave canônica da read API. Leitura pós-sync já vem
+// quente. Falha de warm é silenciosa (não impacta o sync).
+const WARM_LIMIT = 100;
+export async function warmClientCache(clientId: string, keys: string[]): Promise<void> {
+  for (const resource of keys) {
+    const { rows, total } = await repo.queryDocuments(clientId, resource, WARM_LIMIT, 0, true, [], "synced_at");
+    const key = buildDataKey({
+      clientId,
+      resource,
+      limit: WARM_LIMIT,
+      offset: 0,
+      orderBy: "synced_at",
+      orderDesc: true,
+      filters: [],
+    });
+    cacheSet(key, {
+      resource,
+      client_id: clientId,
+      filters: [],
+      pagination: {
+        limit: WARM_LIMIT,
+        offset: 0,
+        page: 1,
+        total,
+        returned: rows.length,
+        has_more: rows.length < total,
+      },
+      data: rows,
+    });
+  }
 }
 
 export async function syncAllActive(): Promise<SyncResult[]> {

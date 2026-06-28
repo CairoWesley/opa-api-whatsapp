@@ -1,6 +1,7 @@
-// Especificação OpenAPI 3.0 da API — servida em /api/openapi.json (pública) e
-// renderizada pelo Swagger UI em /api-docs (público). Descreve os endpoints;
-// as chamadas reais continuam exigindo auth (token ou sessão).
+// Especificação OpenAPI 3.0 — APENAS as rotas de CLIENTE (consumo de dados).
+// Servida em /api/openapi.json (pública) e renderizada em /api-docs.
+// As rotas administrativas (clientes, sync, docs, auth/login) NÃO entram aqui —
+// são operadas pelo painel. O cliente usa esta API só com o token (Bearer).
 import { RESOURCE_KEYS } from "./resources";
 
 export function buildOpenApi(serverUrl?: string) {
@@ -8,227 +9,126 @@ export function buildOpenApi(serverUrl?: string) {
   return {
     openapi: "3.0.3",
     info: {
-      title: "OPA API WhatsApp",
+      title: "OPA API WhatsApp — API do Cliente",
       version: "1.0.0",
       description:
-        "Extração multi-cliente da API OPA Suite para Supabase.\n\n" +
-        "**Autenticação:**\n" +
-        "- **API / programático (ex: Power BI):** `Authorization: Bearer <APP_ADMIN_TOKEN>`.\n" +
-        "- **Dashboard:** login usuário/senha → cookie de sessão (`/api/auth/login`).\n\n" +
-        "As rotas admin aceitam qualquer um dos dois. Use o botão **Authorize** e " +
-        "cole o token para testar aqui.",
+        "API de **consumo de dados** da OPA Suite (atendimentos, contatos, " +
+        "mensagens etc.). Autentique com o token: `Authorization: Bearer <TOKEN>` " +
+        "(botão **Authorize**).\n\n" +
+        "### Recursos\n" +
+        "`" + RESOURCE_KEYS.join("`, `") + "`\n\n" +
+        "### Paginação\n" +
+        "`limit` (máx 1000) + `page` (1-based) **ou** `offset`. A resposta traz " +
+        "`pagination` com `total`, `page`, `has_more`.\n\n" +
+        "### Filtros (parâmetro `filter`, repetível)\n" +
+        "Formato: `filter=campo:operador:valor`. Repita o parâmetro para combinar " +
+        "(AND). Campos do documento são consultados no JSON (`raw->>'campo'`); " +
+        "`external_id`, `synced_at` e `client_id` são colunas.\n\n" +
+        "**Operadores:** `eq` (igual), `neq` (diferente), `like`/`ilike` (contém, " +
+        "case-insensitive), `gt`, `gte`, `lt`, `lte` (maior/menor — funciona com " +
+        "datas ISO e números em texto).\n\n" +
+        "**Exemplos:**\n" +
+        "- Atendimentos de um cliente com status `aberto`:\n" +
+        "  `/api/data/atendimentos?client_id=<id>&filter=status:eq:aberto`\n" +
+        "- Protocolo que contém `2024`:\n" +
+        "  `/api/data/atendimentos?filter=protocolo:like:2024`\n" +
+        "- Sincronizados a partir de uma data:\n" +
+        "  `/api/data/atendimentos?filter=synced_at:gte:2026-06-01`\n" +
+        "- Combinando (status aberto **e** departamento Suporte):\n" +
+        "  `/api/data/atendimentos?filter=status:eq:aberto&filter=departamento:eq:Suporte`\n\n" +
+        "### Ordenação\n" +
+        "`order_by=<campo>` (default `synced_at`) + `order_desc=true|false`.",
     },
     servers: [{ url: server }],
     tags: [
-      { name: "Auth", description: "Login do dashboard e validação de token" },
-      { name: "Clients", description: "CRUD de clientes (tenants OPA)" },
-      { name: "Sync", description: "Sincronização (extração) OPA → Supabase" },
-      { name: "Data", description: "Leitura paginada dos dados extraídos" },
-      { name: "Docs", description: "Documentação do projeto" },
-      { name: "System", description: "Saúde e cron" },
+      { name: "Dados", description: "Leitura paginada e filtrável dos dados extraídos" },
+      { name: "Token", description: "Validação do token e seu escopo" },
+      { name: "Sistema", description: "Saúde do serviço" },
     ],
     components: {
       securitySchemes: {
-        bearerAuth: {
-          type: "http",
-          scheme: "bearer",
-          description: "Token de API (APP_ADMIN_TOKEN).",
-        },
-        cookieAuth: {
-          type: "apiKey",
-          in: "cookie",
-          name: "opa_session",
-          description: "Cookie de sessão emitido no login do dashboard.",
-        },
+        bearerAuth: { type: "http", scheme: "bearer", description: "Token de API." },
       },
       schemas: {
         Error: { type: "object", properties: { error: { type: "string" } } },
-        Client: {
+        Page: {
           type: "object",
           properties: {
-            id: { type: "string", format: "uuid" },
-            slug: { type: "string" },
-            name: { type: "string" },
-            base_url: { type: "string" },
-            company_id: { type: "string", nullable: true },
-            active: { type: "boolean" },
-            sync_interval_minutes: { type: "integer" },
-            lookback_days: { type: "integer" },
-            extra_filters: { type: "object" },
-            last_synced_at: { type: "string", nullable: true },
-            last_sync_status: { type: "string", nullable: true },
-            last_sync_error: { type: "string", nullable: true },
-          },
-        },
-        ClientCreate: {
-          type: "object",
-          required: ["slug", "name", "base_url", "token"],
-          properties: {
-            slug: { type: "string", example: "empresa-x" },
-            name: { type: "string", example: "Empresa X" },
-            base_url: { type: "string", example: "https://empresa.opasuite.net.br" },
-            token: { type: "string", description: "Token da OPA (será criptografado)" },
-            company_id: { type: "string", nullable: true },
-            active: { type: "boolean", default: true },
-            sync_interval_minutes: { type: "integer", default: 30 },
-            lookback_days: { type: "integer", default: 30 },
-            extra_filters: { type: "object", default: {} },
+            resource: { type: "string" },
+            client_id: { type: "string", nullable: true },
+            filters: { type: "array", items: { type: "object" } },
+            pagination: {
+              type: "object",
+              properties: {
+                limit: { type: "integer" },
+                offset: { type: "integer" },
+                page: { type: "integer" },
+                total: { type: "integer" },
+                returned: { type: "integer" },
+                has_more: { type: "boolean" },
+              },
+            },
+            data: { type: "array", items: { type: "object" } },
           },
         },
         TokenValidation: {
           type: "object",
           properties: {
             valid: { type: "boolean" },
-            type: { type: "string", example: "admin" },
+            type: { type: "string" },
             scopes: { type: "array", items: { type: "string" } },
-            access: {
-              type: "object",
-              properties: {
-                resources: { type: "array", items: { type: "object" } },
-                clients: { type: "array", items: { type: "object" } },
-              },
-            },
+            access: { type: "object" },
+            counts: { type: "object" },
           },
         },
       },
     },
-    // Rotas admin: aceitam token OU sessão.
-    security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+    security: [{ bearerAuth: [] }],
     paths: {
-      "/api/health": {
+      "/api/data/{resource}": {
         get: {
-          tags: ["System"],
-          summary: "Saúde do serviço",
-          security: [],
-          responses: { "200": { description: "OK" } },
-        },
-      },
-      "/api/auth/login": {
-        post: {
-          tags: ["Auth"],
-          summary: "Login do dashboard (usuário/senha) → cookie de sessão",
-          security: [],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  required: ["username", "password"],
-                  properties: { username: { type: "string" }, password: { type: "string" } },
-                },
-              },
+          tags: ["Dados"],
+          summary: "Lê um recurso (paginado + filtrável + cache)",
+          parameters: [
+            { name: "resource", in: "path", required: true, schema: { type: "string", enum: RESOURCE_KEYS } },
+            { name: "client_id", in: "query", schema: { type: "string" }, description: "Filtra por cliente (UUID)" },
+            { name: "limit", in: "query", schema: { type: "integer", default: 100, maximum: 1000 } },
+            { name: "page", in: "query", schema: { type: "integer" }, description: "1-based; precede offset" },
+            { name: "offset", in: "query", schema: { type: "integer", default: 0 } },
+            { name: "order_by", in: "query", schema: { type: "string", default: "synced_at" }, description: "Campo p/ ordenar (coluna ou campo do raw)" },
+            { name: "order_desc", in: "query", schema: { type: "boolean", default: true } },
+            {
+              name: "filter",
+              in: "query",
+              required: false,
+              explode: true,
+              style: "form",
+              schema: { type: "array", items: { type: "string" } },
+              description: "campo:operador:valor — repetível. Ex: status:eq:aberto",
+              example: "status:eq:aberto",
             },
-          },
+          ],
           responses: {
-            "200": { description: "Autenticado (Set-Cookie opa_session)" },
-            "401": { description: "Credenciais inválidas", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+            "200": { description: "Página de dados", content: { "application/json": { schema: { $ref: "#/components/schemas/Page" } } } },
+            "400": { description: "Recurso/filtro inválido", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+            "401": { description: "Token ausente/inválido" },
           },
         },
-      },
-      "/api/auth/logout": {
-        post: { tags: ["Auth"], summary: "Encerra a sessão (limpa cookie)", security: [], responses: { "200": { description: "OK" } } },
-      },
-      "/api/auth/me": {
-        get: { tags: ["Auth"], summary: "Quem está autenticado", responses: { "200": { description: "Sessão/token válidos" }, "401": { description: "Não autenticado" } } },
       },
       "/api/auth/validate": {
         post: {
-          tags: ["Auth"],
-          summary: "Valida um token e retorna a que dados ele tem acesso",
-          description:
-            "Recebe um token (no header `Authorization: Bearer` ou no body `{token}`) " +
-            "e, se válido, devolve o manifesto de acesso: recursos e clientes que o " +
-            "token pode ler/operar.",
+          tags: ["Token"],
+          summary: "Valida o token e mostra a que dados ele tem acesso",
           security: [],
-          requestBody: {
-            required: false,
-            content: { "application/json": { schema: { type: "object", properties: { token: { type: "string" } } } } },
-          },
+          requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { token: { type: "string" } } } } } },
           responses: {
             "200": { description: "Token válido", content: { "application/json": { schema: { $ref: "#/components/schemas/TokenValidation" } } } },
             "401": { description: "Token inválido", content: { "application/json": { schema: { $ref: "#/components/schemas/TokenValidation" } } } },
           },
         },
       },
-      "/api/clients": {
-        get: {
-          tags: ["Clients"],
-          summary: "Lista clientes",
-          parameters: [{ name: "active", in: "query", schema: { type: "boolean" }, description: "Filtra por ativo/inativo" }],
-          responses: { "200": { description: "Lista", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Client" } } } } }, "401": { description: "Não autenticado" } },
-        },
-        post: {
-          tags: ["Clients"],
-          summary: "Cria cliente (token OPA é criptografado)",
-          requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ClientCreate" } } } },
-          responses: { "201": { description: "Criado", content: { "application/json": { schema: { $ref: "#/components/schemas/Client" } } } }, "409": { description: "Slug duplicado" }, "422": { description: "Body inválido" } },
-        },
-      },
-      "/api/clients/{id}": {
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        get: { tags: ["Clients"], summary: "Detalhe do cliente", responses: { "200": { description: "OK" }, "404": { description: "Não encontrado" } } },
-        patch: { tags: ["Clients"], summary: "Edita cliente (parcial; `token` re-criptografa)", requestBody: { content: { "application/json": { schema: { type: "object" } } } }, responses: { "200": { description: "Atualizado" }, "404": { description: "Não encontrado" } } },
-        delete: { tags: ["Clients"], summary: "Exclui cliente e TODOS os dados (cascade)", responses: { "200": { description: "Removido" }, "404": { description: "Não encontrado" } } },
-      },
-      "/api/clients/{id}/activate": {
-        post: { tags: ["Clients"], summary: "Ativa cliente", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "OK" } } },
-      },
-      "/api/clients/{id}/deactivate": {
-        post: { tags: ["Clients"], summary: "Inativa cliente", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "OK" } } },
-      },
-      "/api/sync/resources": {
-        get: { tags: ["Sync"], summary: "Catálogo de recursos OPA + filtros", responses: { "200": { description: "OK" } } },
-      },
-      "/api/sync/clients/{id}": {
-        post: {
-          tags: ["Sync"],
-          summary: "Sincroniza 1 cliente",
-          parameters: [
-            { name: "id", in: "path", required: true, schema: { type: "string" } },
-            { name: "wait", in: "query", schema: { type: "boolean", default: true }, description: "false = dispara em background (202)" },
-            { name: "resources", in: "query", schema: { type: "string" }, description: "csv de recursos; vazio = todos" },
-          ],
-          requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { filter: { type: "object", description: "Sobrescreve o filtro do recurso" } } } } } },
-          responses: { "200": { description: "Resultado do sync" }, "202": { description: "Agendado" }, "404": { description: "Não encontrado" } },
-        },
-      },
-      "/api/sync/all": {
-        post: { tags: ["Sync"], summary: "Sincroniza todos os clientes ativos", parameters: [{ name: "wait", in: "query", schema: { type: "boolean", default: false } }], responses: { "200": { description: "OK" }, "202": { description: "Agendado" } } },
-      },
-      "/api/cron/sync": {
-        get: {
-          tags: ["System"],
-          summary: "Sync de todos os ativos (para scheduler)",
-          description: "Autentica via `Authorization: Bearer <CRON_SECRET>` (ou APP_ADMIN_TOKEN). Vercel Cron: a cada 3h.",
-          security: [{ bearerAuth: [] }],
-          responses: { "200": { description: "OK" }, "401": { description: "Não autorizado" } },
-        },
-      },
-      "/api/data/{resource}": {
-        get: {
-          tags: ["Data"],
-          summary: "Leitura paginada de um recurso (com cache)",
-          parameters: [
-            { name: "resource", in: "path", required: true, schema: { type: "string", enum: RESOURCE_KEYS } },
-            { name: "client_id", in: "query", schema: { type: "string" }, description: "Filtra por cliente" },
-            { name: "limit", in: "query", schema: { type: "integer", default: 100, maximum: 1000 } },
-            { name: "page", in: "query", schema: { type: "integer" }, description: "1-based; tem precedência sobre offset" },
-            { name: "offset", in: "query", schema: { type: "integer", default: 0 } },
-            { name: "order_desc", in: "query", schema: { type: "boolean", default: true } },
-          ],
-          responses: { "200": { description: "Página de dados" }, "400": { description: "Recurso inválido" } },
-        },
-      },
-      "/api/data/cache": {
-        get: { tags: ["Data"], summary: "Estatísticas do cache", responses: { "200": { description: "OK" } } },
-        delete: { tags: ["Data"], summary: "Limpa o cache", responses: { "200": { description: "OK" } } },
-      },
-      "/api/docs": {
-        get: { tags: ["Docs"], summary: "Lista a documentação do projeto", responses: { "200": { description: "OK" } } },
-      },
-      "/api/docs/{slug}": {
-        get: { tags: ["Docs"], summary: "Documento renderizado em HTML", parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }], responses: { "200": { description: "OK" }, "404": { description: "Não encontrado" } } },
+      "/api/health": {
+        get: { tags: ["Sistema"], summary: "Saúde do serviço", security: [], responses: { "200": { description: "OK" } } },
       },
     },
   };

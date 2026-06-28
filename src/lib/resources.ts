@@ -5,7 +5,11 @@ export type Resource = {
   key: string; // nome lógico (coluna resource no Supabase)
   path: string; // path relativo à base_url do cliente
   filters: string[]; // filtros aceitos no body
-  dateFilter?: string; // filtro de janela incremental, se houver
+  // Campos de data p/ a janela incremental. CADA campo vira uma passada
+  // separada (a OPA combina filtros com AND num mesmo request), e os
+  // resultados são mesclados por upsert (_id). Ex: abertura (criado) +
+  // encerramento (fechado) → pega tudo que abriu OU fechou na janela.
+  incrementalDates?: string[];
 };
 
 // Ordem: dimensões primeiro, fatos (atendimentos/mensagens) por último.
@@ -23,7 +27,8 @@ export const RESOURCES: Resource[] = [
     key: "atendimentos",
     path: "/api/v1/atendimento",
     filters: ["protocolo", "dataInicialAbertura", "dataFinalAbertura", "dataInicialEncerramento", "dataFinalEncerramento"],
-    dateFilter: "dataInicialAbertura",
+    // Incremental por 2 janelas: abertura (criado) e encerramento (fechado).
+    incrementalDates: ["dataInicialAbertura", "dataInicialEncerramento"],
   },
   { key: "mensagens", path: "/api/v1/atendimento/mensagem", filters: ["id_rota"] },
 ];

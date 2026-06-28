@@ -108,20 +108,48 @@ export async function upsertDocuments(
   return rows.length;
 }
 
+export type DocFilter = { field: string; op: string; value: string };
+
+// Campos que são COLUNA (filtro direto); o resto vai no raw->>'campo'.
+const COLUMN_FIELDS = new Set(["external_id", "synced_at", "client_id", "resource"]);
+
+function colRef(field: string): string {
+  return COLUMN_FIELDS.has(field) ? field : `raw->>${field}`;
+}
+
 export async function queryDocuments(
   clientId: string | null,
   resource: string,
   limit: number,
   offset: number,
   orderDesc: boolean,
+  filters: DocFilter[] = [],
+  orderBy = "synced_at",
 ): Promise<{ rows: unknown[]; total: number }> {
   let q = supabaseAdmin()
     .from("opa_documents")
     .select("id, client_id, resource, external_id, raw, synced_at", { count: "exact" })
     .eq("resource", resource);
   if (clientId) q = q.eq("client_id", clientId);
+
+  for (const f of filters) {
+    const col = colRef(f.field);
+    switch (f.op) {
+      case "eq": q = q.eq(col, f.value); break;
+      case "neq": q = q.neq(col, f.value); break;
+      case "like":
+      case "ilike": q = q.ilike(col, `%${f.value}%`); break;
+      case "gt": q = q.gt(col, f.value); break;
+      case "gte": q = q.gte(col, f.value); break;
+      case "lt": q = q.lt(col, f.value); break;
+      case "lte": q = q.lte(col, f.value); break;
+      default: break;
+    }
+  }
+
+  const orderCol = orderBy === "synced_at" || COLUMN_FIELDS.has(orderBy) ? orderBy : `raw->>${orderBy}`;
   const { data, error, count } = await q
-    .order("synced_at", { ascending: !orderDesc })
+    .order(orderCol, { ascending: !orderDesc })
     .range(offset, offset + limit - 1);
   if (error) throw error;
   return { rows: data ?? [], total: count ?? 0 };

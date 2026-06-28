@@ -11,6 +11,7 @@ export type DocMeta = { slug: string; title: string; file: string };
 // Ordem = ordem de exibição na navegação.
 export const DOCS: DocMeta[] = [
   { slug: "readme", title: "README — visão geral & uso", file: "README.md" },
+  { slug: "api-cliente", title: "API do Cliente — leitura e filtros", file: "docs/api-cliente-filtros.md" },
   { slug: "arquitetura", title: "Arquitetura — como tudo se liga", file: "docs/ARQUITETURA.md" },
   { slug: "powerbi", title: "Integração Power BI", file: "docs/powerbi-integration.md" },
   { slug: "resumo", title: "Resumo do projeto", file: "RESUMO-PROJETO.md" },

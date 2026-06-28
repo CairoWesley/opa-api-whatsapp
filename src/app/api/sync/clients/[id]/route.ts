@@ -7,11 +7,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // sync pode ser demorado
 
-// POST /api/sync/clients/:id?wait=true&resources=atendimentos,contatos
+// POST /api/sync/clients/:id?wait=true&resources=atendimentos,contatos&full=true
 // Body opcional: { filter: { ... } }  -> sobrescreve o filtro do recurso (query custom).
+// O 1º sync de um cliente é SEMPRE full automaticamente; `full=true` força de novo.
 export const POST = withAdmin(async (req, { params }) => {
   const url = new URL(req.url);
   const wait = url.searchParams.get("wait") !== "false"; // default: aguarda
+  const full = url.searchParams.get("full") === "true"; // força sync full
   const resourcesParam = url.searchParams.get("resources");
   const resources = resourcesParam ? resourcesParam.split(",").map((s) => s.trim()) : undefined;
 
@@ -26,9 +28,9 @@ export const POST = withAdmin(async (req, { params }) => {
 
   if (!wait) {
     // dispara sem bloquear a resposta
-    void syncClient(params.id, resources, override).catch(() => {});
+    void syncClient(params.id, resources, override, full).catch(() => {});
     return json({ client_id: params.id, status: "scheduled" }, 202);
   }
-  const result = await syncClient(params.id, resources, override);
+  const result = await syncClient(params.id, resources, override, full);
   return json(result);
 });
