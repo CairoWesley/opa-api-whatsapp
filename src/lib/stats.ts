@@ -6,9 +6,11 @@ import { cacheGet, cacheSet } from "./cache";
 
 const MONTHS = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 
-export async function buildOverview() {
-  const cached = cacheGet("stats:overview");
-  if (cached) return cached;
+export async function buildOverview(force = false) {
+  if (!force) {
+    const cached = cacheGet("stats:overview");
+    if (cached) return cached;
+  }
 
   const now = new Date();
   const since = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();

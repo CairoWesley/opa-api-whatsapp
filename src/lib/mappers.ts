@@ -65,8 +65,8 @@ export const MAPPERS: Record<string, ResourceMap> = {
       canal: { keys: ["canalComunicacao", "canal", "channel_id"] },
       contato_id: { keys: ["contato", "contato_id", "contatoId"] },
       avaliacao: { keys: ["avaliacao", "rating"] },
-      aberto_em: { keys: ["dataAbertura", "dataInicialAbertura", "criadoEm", "createdAt"], date: true },
-      encerrado_em: { keys: ["dataEncerramento", "dataFinalEncerramento", "finishedAt"], date: true },
+      aberto_em: { keys: ["date", "dataAbertura", "dataInicialAbertura", "abertura", "criadoEm", "createdAt"], date: true },
+      encerrado_em: { keys: ["fim", "dataEncerramento", "dataFinalEncerramento", "encerramento", "finishedAt"], date: true },
     },
   },
   mensagens: {
