@@ -107,6 +107,7 @@ services:
     image: ghcr.io/cairowesley/opa-api-whatsapp-app:latest
     networks: [internal, proxy]
     environment:
+      HOSTNAME: "0.0.0.0"
       DATABASE_URL: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
       APP_ADMIN_TOKEN: e1c9ebeb8bf2a39f38a1b5bcdd78f91e1499ea192b28ef44
       APP_ENCRYPTION_KEY: LWkyCXPfTXNkP1bsEZiiHs6o+rXd1huWWfcRkUBL7XQ=
