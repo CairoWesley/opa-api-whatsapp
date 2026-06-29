@@ -26,6 +26,10 @@ export const config = {
   schedulerEnabled: () => (process.env.SCHEDULER_ENABLED ?? "true") !== "false",
   schedulerIntervalSec: () => Number(process.env.SCHEDULER_INTERVAL_SEC ?? 60),
   revalidateHours: () => Number(process.env.REVALIDATE_HOURS ?? 12),
+  // Idade (min) p/ considerar uma run "presa" e marcar interrupted. Full sync
+  // grande (ex. mensagens) passa fácil de 15min — default alto evita falso
+  // positivo. O guard de job ativo no BullMQ é a proteção principal.
+  stuckReconcileMin: () => Number(process.env.STUCK_RECONCILE_MIN ?? 180),
   // Seed do 1º usuário admin do dashboard (cria se a tabela estiver vazia).
   defaultDashUser: () => process.env.DASHBOARD_DEFAULT_USER || "",
   defaultDashPassword: () => process.env.DASHBOARD_DEFAULT_PASSWORD || "",

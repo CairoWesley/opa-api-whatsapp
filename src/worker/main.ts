@@ -28,9 +28,15 @@ const worker = new Worker<SyncJobData>(
     }
     const { clientId, resources, full } = job.data;
     const t0 = Date.now();
-    log(`▶ sync start client=${clientId} full=${!!full} resources=${resources?.join(",") || "all"}`);
     const result = await syncClient(clientId, resources, undefined, full);
-    log(`■ sync done  client=${clientId} status=${result.status} upserted=${result.total_upserted} em=${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    // Log de execução = status simples: extraídos + erros + motivo.
+    const errs = result.resources.filter((r) => r.status === "error");
+    const secs = ((Date.now() - t0) / 1000).toFixed(1);
+    log(`[${result.client_slug}] ${full ? "full" : "inc"} (${secs}s) — Dados extraídos: ${result.total_upserted} registros`);
+    if (errs.length) {
+      log(`[${result.client_slug}] Error: ${errs.length} erro(s)`);
+      for (const e of errs) log(`  ${e.resource}: ${e.error}`);
+    }
     return result;
   },
   { connection: connectionOpts(), concurrency },

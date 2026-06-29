@@ -215,11 +215,21 @@ export async function finishSyncRun(id: string, f: Record<string, any>): Promise
 }
 // Reconcilia execuções/clientes presos em "running" (worker morreu no meio).
 // maxAgeMin=0 (boot) marca todos; >0 só os antigos (não mexe nos ativos).
-export async function reconcileStuck(maxAgeMin = 0): Promise<void> {
+// excludeClientIds: clientes com job AINDA ativo no BullMQ — nunca marcados
+// interrupted (full grande passa de maxAgeMin sem estar travado).
+export async function reconcileStuck(maxAgeMin = 0, excludeClientIds: string[] = []): Promise<void> {
   const ageRun = maxAgeMin > 0 ? `and started_at < now() - interval '${maxAgeMin} minutes'` : "";
-  await exec(`update sync_runs set status='interrupted', finished_at=now() where status='running' ${ageRun}`);
+  const params: any[] = [];
+  let exclRun = "";
+  let exclCli = "";
+  if (excludeClientIds.length) {
+    params.push(excludeClientIds);
+    exclRun = `and client_id <> all($1::uuid[])`;
+    exclCli = `and id <> all($1::uuid[])`;
+  }
+  await exec(`update sync_runs set status='interrupted', finished_at=now() where status='running' ${ageRun} ${exclRun}`, params);
   const ageCli = maxAgeMin > 0 ? `and (last_synced_at is null or last_synced_at < now() - interval '${maxAgeMin} minutes')` : "";
-  await exec(`update opa_clients set last_sync_status='interrupted', cancel_requested=false where last_sync_status in ('running','queued') ${ageCli}`);
+  await exec(`update opa_clients set last_sync_status='interrupted', cancel_requested=false where last_sync_status in ('running','queued') ${ageCli} ${exclCli}`, params);
 }
 export async function listRecentRuns(limit = 20): Promise<any[]> {
   return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at

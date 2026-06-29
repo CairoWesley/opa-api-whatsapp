@@ -3,7 +3,7 @@
 // o token dos que estão com a validação velha. Um job por cliente (a fila
 // processa em paralelo). Dedup por jobId evita enfileirar o mesmo 2x.
 import * as repo from "./repo";
-import { enqueueSync } from "./queue";
+import { enqueueSync, activeSyncClientIds } from "./queue";
 import { revalidateClient } from "./extractor";
 import { config } from "./config";
 
@@ -25,8 +25,11 @@ export async function runScheduler(): Promise<{ enqueued: string[]; revalidated:
   const revalOn = s.auto_revalidate_enabled ?? true;
   const revalidateMs = Number(s.revalidate_hours ?? config.revalidateHours()) * 3600_000;
 
-  // Reconcilia execuções presas há >15min (worker que morreu sem reportar).
-  await repo.reconcileStuck(15).catch(() => {});
+  // Reconcilia execuções presas (worker que morreu sem reportar). Só marca
+  // interrupted as antigas (> stuckReconcileMin) E que NÃO têm job ativo no
+  // BullMQ — full grande legítimo (>min) não é falso-positivo.
+  const active = await activeSyncClientIds().catch(() => [] as string[]);
+  await repo.reconcileStuck(config.stuckReconcileMin(), active).catch(() => {});
 
   const enqueued: string[] = [];
   const revalidated: string[] = [];

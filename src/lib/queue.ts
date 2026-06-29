@@ -75,6 +75,16 @@ export async function queueCounts() {
   return queue().getJobCounts("waiting", "active", "completed", "failed", "delayed");
 }
 
+// clientIds dos jobs de sync ATUALMENTE em execução. Usado pelo reaper p/ NÃO
+// marcar como "interrupted" uma run que ainda está rodando de verdade (full
+// grande passa de 15min sem estar travado).
+export async function activeSyncClientIds(): Promise<string[]> {
+  const jobs = await queue().getActive().catch(() => []);
+  const ids = new Set<string>();
+  for (const j of jobs) if (j.name === "sync" && j.data?.clientId) ids.add(j.data.clientId);
+  return [...ids];
+}
+
 // Remove jobs de SYNC que ainda não começaram (espera/atrasados). Não mata os
 // ativos — esses param via flag de cancelamento (checkpoint). Preserva o tick.
 export async function drainQueue(): Promise<number> {
