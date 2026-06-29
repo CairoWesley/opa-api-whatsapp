@@ -1,12 +1,16 @@
 # Stack p/ Portainer CE (Swarm) — SUPABASE SELF-HOSTED COMPLETO + app.
-# Imagens no ghcr (públicas). Sem bind mounts (db e kong já trazem config embutida).
-# Portas publicadas: app :8390 · Studio :8391 · Kong (API Supabase) :8392
-# Troque os secrets em produção.
-version: "3.8"
+# FECHADO: sem portas publicadas. Exposto so via Traefik (rede externa "proxy"),
+# protegido pelo Cloudflare (tunnel + Access). Imagens no ghcr (publicas).
+#   app    -> https://opa.cairocorp.tech
+#   studio -> https://opa-studio.cairocorp.tech
+# Demais servicos (kong/rest/meta/db/redis/worker) ficam so na rede interna.
+# Troque os secrets em producao.
+version: "3.7"
 
 services:
   db:
     image: ghcr.io/cairowesley/opa-api-whatsapp-db:latest
+    networks: [internal]
     environment:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: f16ed7776808cce54b605a61529d3618
@@ -14,10 +18,13 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
 
   rest:
     image: postgrest/postgrest:v12.2.0
+    networks: [internal]
     environment:
       PGRST_DB_URI: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
       PGRST_DB_SCHEMAS: public
@@ -25,12 +32,13 @@ services:
       PGRST_JWT_SECRET: d773947fb8035e210b0b50cee09a54cd6990a1b4
       PGRST_DB_USE_LEGACY_GUCS: "false"
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
 
   kong:
     image: ghcr.io/cairowesley/opa-api-whatsapp-kong:latest
-    ports:
-      - "8392:8000"
+    networks: [internal]
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
@@ -40,10 +48,13 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 16m
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
 
   meta:
     image: supabase/postgres-meta:v0.84.2
+    networks: [internal]
     environment:
       PG_META_PORT: "8080"
       PG_META_DB_HOST: db
@@ -52,12 +63,13 @@ services:
       PG_META_DB_USER: postgres
       PG_META_DB_PASSWORD: f16ed7776808cce54b605a61529d3618
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
 
   studio:
     image: supabase/studio:20241014-c083b3b
-    ports:
-      - "8391:3000"
+    networks: [internal, proxy]
     environment:
       HOSTNAME: "0.0.0.0"
       STUDIO_PG_META_URL: http://meta:8080
@@ -65,25 +77,35 @@ services:
       DEFAULT_ORGANIZATION_NAME: Local
       DEFAULT_PROJECT_NAME: opa-api-whatsapp
       SUPABASE_URL: http://kong:8000
-      SUPABASE_PUBLIC_URL: http://localhost:8392
+      SUPABASE_PUBLIC_URL: https://opa-studio.cairocorp.tech
       SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzE1MDUwODAwLCJleHAiOjE4NzI4MTcyMDB9.z1vW6lZZvWRe1MbH23cH-LrrC1RbWR5fTbUdgq_e0HY
       SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3MTUwNTA4MDAsImV4cCI6MTg3MjgxNzIwMH0.rt2b2Rc5mNV4jhoYBBNqhJmeWVxho7AAJ3cZAATzJnE
       AUTH_JWT_SECRET: d773947fb8035e210b0b50cee09a54cd6990a1b4
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=proxy"
+        - "traefik.http.routers.opastudio.rule=Host(`opa-studio.cairocorp.tech`)"
+        - "traefik.http.routers.opastudio.entrypoints=web"
+        - "traefik.http.services.opastudio.loadbalancer.server.port=3000"
 
   redis:
     image: redis:7-alpine
+    networks: [internal]
     command: sh -c 'redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no'
     environment:
       REDIS_PASSWORD: add054bad174898a0d700b992a52d6b2
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
 
   app:
     image: ghcr.io/cairowesley/opa-api-whatsapp-app:latest
-    ports:
-      - "8390:3000"
+    networks: [internal, proxy]
     environment:
       DATABASE_URL: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
       APP_ADMIN_TOKEN: e1c9ebeb8bf2a39f38a1b5bcdd78f91e1499ea192b28ef44
@@ -99,10 +121,19 @@ services:
       DASHBOARD_DEFAULT_USER: admin
       DASHBOARD_DEFAULT_PASSWORD: 2uKGDBxPjsmH6Aj
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=proxy"
+        - "traefik.http.routers.opa.rule=Host(`opa.cairocorp.tech`)"
+        - "traefik.http.routers.opa.entrypoints=web"
+        - "traefik.http.services.opa.loadbalancer.server.port=3000"
 
   worker:
     image: ghcr.io/cairowesley/opa-api-whatsapp-worker:latest
+    networks: [internal]
     environment:
       DATABASE_URL: postgres://postgres:f16ed7776808cce54b605a61529d3618@db:5432/postgres
       APP_ENCRYPTION_KEY: LWkyCXPfTXNkP1bsEZiiHs6o+rXd1huWWfcRkUBL7XQ=
@@ -117,7 +148,16 @@ services:
       SCHEDULER_INTERVAL_SEC: "60"
       REVALIDATE_HOURS: "12"
     deploy:
+      placement:
+        constraints: [node.role == manager]
       restart_policy: { condition: any }
+
+networks:
+  proxy:
+    external: true
+    name: proxy
+  internal:
+    driver: overlay
 
 volumes:
   db_data:
