@@ -6,7 +6,11 @@ import * as repo from "./repo";
 import { enqueueSync, activeSyncClientIds } from "./queue";
 import { revalidateClient } from "./extractor";
 import { refreshDueViews } from "./views";
+import { purgeApiLogs } from "./apilog";
 import { config } from "./config";
+
+// Throttle da purga de logs (não precisa rodar todo tick).
+let lastPurge = 0;
 
 // Maior timestamp de validação dentre os recursos (ms), ou 0 se nunca validou.
 function lastRevalidatedMs(access: Record<string, { at: string }> | null | undefined): number {
@@ -28,6 +32,12 @@ export async function runScheduler(): Promise<{ enqueued: string[]; revalidated:
 
   // Atualiza materialized views cujo intervalo venceu (cron interno).
   const views_refreshed = await refreshDueViews().catch(() => [] as string[]);
+
+  // Purga logs da API além da retenção (1x/hora).
+  if (Date.now() - lastPurge > 3600_000) {
+    lastPurge = Date.now();
+    await purgeApiLogs().catch(() => {});
+  }
 
   // Reconcilia execuções presas (worker que morreu sem reportar). Só marca
   // interrupted as antigas (> stuckReconcileMin) E que NÃO têm job ativo no

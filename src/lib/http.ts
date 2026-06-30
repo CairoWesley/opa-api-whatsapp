@@ -50,13 +50,45 @@ export function withApiAuth(
   handler: (req: Request, ctx: { params: Record<string, string> }, principal: Principal) => Promise<Response>,
 ) {
   return async (req: Request, ctx: { params: Record<string, string> }) => {
+    const t0 = Date.now();
+    let principal: Principal | null = null;
+    let res: Response;
     try {
-      const principal = await requireApiAuth(req);
-      return await handler(req, ctx, principal);
+      principal = await requireApiAuth(req);
+      res = await handler(req, ctx, principal);
     } catch (err) {
-      if (err instanceof UnauthorizedError) return error(err.message, 401);
-      const msg = err instanceof Error ? err.message : "Erro interno";
-      return error(msg, 500);
+      if (err instanceof UnauthorizedError) res = error(err.message, 401);
+      else res = error(err instanceof Error ? err.message : "Erro interno", 500);
     }
+    logApiCall(req, res, principal, Date.now() - t0);
+    return res;
   };
+}
+
+// Registra a chamada (status + body de retorno) — best-effort, não bloqueia a
+// resposta. Body truncado por config. Roda fora do caminho crítico.
+function logApiCall(req: Request, res: Response, principal: Principal | null, ms: number) {
+  void (async () => {
+    try {
+      const { config } = await import("./config");
+      if (!config.apiLogEnabled()) return;
+      const { insertApiLog } = await import("./apilog");
+      const u = new URL(req.url);
+      let body: string | null = null;
+      try { body = (await res.clone().text()).slice(0, config.apiLogBodyMax()); } catch { body = null; }
+      await insertApiLog({
+        method: req.method,
+        path: u.pathname,
+        query: u.search ? u.search.slice(1) : null,
+        status: res.status,
+        client_id: principal?.kind === "apitoken" ? principal.clientId : null,
+        token_id: principal?.kind === "apitoken" ? principal.tokenId : null,
+        principal: principal ? principal.kind : "none",
+        duration_ms: ms,
+        response_body: body,
+      });
+    } catch {
+      /* silencioso */
+    }
+  })();
 }

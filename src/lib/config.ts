@@ -37,6 +37,10 @@ export const config = {
   // grande (ex. mensagens) passa fácil de 15min — default alto evita falso
   // positivo. O guard de job ativo no BullMQ é a proteção principal.
   stuckReconcileMin: () => Number(process.env.STUCK_RECONCILE_MIN ?? 180),
+  // Log da API do cliente: retenção (dias) e tamanho máx. do body guardado.
+  apiLogEnabled: () => (process.env.API_LOG_ENABLED ?? "true") !== "false",
+  apiLogRetentionDays: () => Number(process.env.API_LOG_RETENTION_DAYS ?? 60),
+  apiLogBodyMax: () => Number(process.env.API_LOG_BODY_MAX ?? 8192),
   // Seed do 1º usuário admin do dashboard (cria se a tabela estiver vazia).
   defaultDashUser: () => process.env.DASHBOARD_DEFAULT_USER || "",
   defaultDashPassword: () => process.env.DASHBOARD_DEFAULT_PASSWORD || "",
