@@ -19,6 +19,7 @@ export const POST = withAdmin(async (req) => {
       sql: String(b.sql ?? ""),
       materialized: Boolean(b.materialized ?? false),
       refresh_interval_minutes: b.refresh_interval_minutes != null ? Number(b.refresh_interval_minutes) : undefined,
+      client_id: b.client_id ? String(b.client_id) : null,
     });
     return json(row, 201);
   } catch (e) {

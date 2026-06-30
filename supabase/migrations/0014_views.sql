@@ -9,6 +9,10 @@ create table if not exists opa_views (
   materialized boolean not null default false,
   refresh_interval_minutes int not null default 60,
   enabled boolean not null default true,
+  -- dono: se setado, só o token desse cliente acessa a view (null = compartilhada).
+  client_id uuid,
+  -- a SELECT expõe coluna client_id? (p/ filtrar linhas por token na compartilhada).
+  has_client_id boolean not null default true,
   last_refreshed_at timestamptz,
   last_error text,
   created_at timestamptz not null default now()

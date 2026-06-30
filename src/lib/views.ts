@@ -12,6 +12,11 @@ export type ViewDef = {
   materialized: boolean;
   refresh_interval_minutes: number;
   enabled: boolean;
+  // Dono: se setado, SÓ o token desse cliente (ou admin) acessa a view.
+  // null = compartilhada (qualquer cliente; escopada por linha via client_id).
+  client_id: string | null;
+  // A view expõe coluna client_id? (p/ filtrar linhas por token).
+  has_client_id: boolean;
   last_refreshed_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -36,6 +41,9 @@ export async function ensureViewsTable(): Promise<void> {
     last_error text,
     created_at timestamptz not null default now()
   )`);
+  // Colunas de dono/escopo (idempotente p/ bases já criadas).
+  await exec(`alter table opa_views add column if not exists client_id uuid`);
+  await exec(`alter table opa_views add column if not exists has_client_id boolean not null default true`);
   ensured = true;
 }
 
@@ -64,14 +72,18 @@ export type ViewInput = {
   sql: string;
   materialized: boolean;
   refresh_interval_minutes?: number;
+  client_id?: string | null; // dono (opcional)
 };
 
-// Cria/substitui o objeto no banco + grava a definição. Valida client_id.
+// Cria/substitui o objeto no banco + grava a definição.
+//   - view COMPARTILHADA (sem dono): SELECT precisa expor client_id (escopo por linha).
+//   - view DO CLIENTE (com dono): só ele acessa; client_id na SELECT é opcional.
 export async function upsertView(input: ViewInput): Promise<ViewDef> {
   await ensureViewsTable();
   if (!SLUG_RE.test(input.slug)) throw new Error("slug inválido (a-z, 0-9, _; começa com letra)");
   const sql = input.sql.trim().replace(/;\s*$/, "");
   if (!/^select\s/i.test(sql)) throw new Error("a SQL da view precisa começar com SELECT");
+  const owner = input.client_id || null;
   const obj = objName(input.slug);
 
   // Troca de tipo limpa: remove qualquer objeto anterior com esse nome.
@@ -85,21 +97,24 @@ export async function upsertView(input: ViewInput): Promise<ViewDef> {
     throw new Error(`SQL inválida: ${e instanceof Error ? e.message : e}`);
   }
 
-  if (!(await hasClientId(obj))) {
+  const hasCid = await hasClientId(obj);
+  // Compartilhada exige client_id (senão não dá p/ escopar por cliente).
+  if (!owner && !hasCid) {
     await exec(`drop materialized view if exists ${obj} cascade`);
     await exec(`drop view if exists ${obj} cascade`);
-    throw new Error("a SELECT precisa expor a coluna client_id (p/ escopar por token do cliente)");
+    throw new Error("view compartilhada: a SELECT precisa expor client_id (ou defina um cliente dono)");
   }
 
   const interval = Math.max(Number(input.refresh_interval_minutes ?? 60), 1);
   const row = await q1<ViewDef>(
-    `insert into opa_views (slug, name, sql, materialized, refresh_interval_minutes, enabled, last_error)
-     values ($1,$2,$3,$4,$5,true,null)
+    `insert into opa_views (slug, name, sql, materialized, refresh_interval_minutes, enabled, client_id, has_client_id, last_error)
+     values ($1,$2,$3,$4,$5,true,$6,$7,null)
      on conflict (slug) do update set
        name = excluded.name, sql = excluded.sql, materialized = excluded.materialized,
-       refresh_interval_minutes = excluded.refresh_interval_minutes, enabled = true, last_error = null
+       refresh_interval_minutes = excluded.refresh_interval_minutes, enabled = true,
+       client_id = excluded.client_id, has_client_id = excluded.has_client_id, last_error = null
      returning *`,
-    [input.slug, input.name, sql, input.materialized, interval],
+    [input.slug, input.name, sql, input.materialized, interval, owner, hasCid],
   );
   if (input.materialized) await refreshView(input.slug).catch(() => {});
   return row as ViewDef;
@@ -157,8 +172,10 @@ export async function queryView(
   const v = await getView(slug);
   if (!v || !v.enabled) throw new Error("view não encontrada");
   const obj = objName(slug);
-  const where = clientId ? `where client_id = $1` : ``;
-  const params = clientId ? [clientId] : [];
+  // Só filtra por linha se a view EXPÕE client_id e há um escopo definido.
+  const scoped = v.has_client_id && clientId;
+  const where = scoped ? `where client_id = $1` : ``;
+  const params = scoped ? [clientId] : [];
   const totalRow = await q1<{ n: number }>(`select count(*)::int n from ${obj} ${where}`, params);
   const rows = await q(`select * from ${obj} ${where} limit ${limit} offset ${offset}`, params);
   return { rows, total: totalRow?.n ?? 0 };

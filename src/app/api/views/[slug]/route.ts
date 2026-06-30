@@ -16,8 +16,20 @@ export const GET = withApiAuth(async (req, { params }, principal) => {
   if (!v || !v.enabled) return error("View não encontrada", 404);
 
   const qs = new URL(req.url).searchParams;
-  const scopedClient = principal.kind === "apitoken" ? principal.clientId : null;
-  const clientId = scopedClient ?? (qs.get("client_id") || null);
+  const tokenClient = principal.kind === "apitoken" ? principal.clientId : null;
+
+  // View COM DONO: só o token do cliente dono (ou admin/sessão) acessa. Outro
+  // cliente recebe 404 (não revela a existência da view). Escopo = o dono.
+  let clientId: string | null;
+  if (v.client_id) {
+    if (principal.kind === "apitoken" && principal.clientId !== v.client_id) {
+      return error("View não encontrada", 404);
+    }
+    clientId = v.client_id;
+  } else {
+    // Compartilhada: escopa pelas linhas do cliente do token (admin vê tudo).
+    clientId = tokenClient ?? (qs.get("client_id") || null);
+  }
   const limit = Math.min(Math.max(Number(qs.get("limit") ?? 100), 1), MAX_LIMIT);
   const page = qs.get("page") ? Math.max(Number(qs.get("page")), 1) : null;
   const offset = page !== null ? (page - 1) * limit : Math.max(Number(qs.get("offset") ?? 0), 0);
@@ -57,6 +69,7 @@ export const PUT = withAdmin(async (req, { params }) => {
       sql: String(b.sql ?? ""),
       materialized: Boolean(b.materialized ?? false),
       refresh_interval_minutes: b.refresh_interval_minutes != null ? Number(b.refresh_interval_minutes) : undefined,
+      client_id: b.client_id ? String(b.client_id) : null,
     });
     return json(row);
   } catch (e) {

@@ -74,7 +74,7 @@ export default function AdminPage() {
   const [qRunning, setQRunning] = useState(false);
   // Views SQL entregues ao cliente via token.
   const [viewsList, setViewsList] = useState<any[]>([]);
-  const [vForm, setVForm] = useState({ slug: "", name: "", sql: "select client_id, count(*) total\nfrom opa_atendimentos\ngroup by client_id", materialized: false, refresh_interval_minutes: 60 });
+  const [vForm, setVForm] = useState({ slug: "", name: "", sql: "select client_id, count(*) total\nfrom opa_atendimentos\ngroup by client_id", materialized: false, refresh_interval_minutes: 60, client_id: "" });
 
   // testar filtros
   const [ftRes, setFtRes] = useState("atendimentos");
@@ -323,7 +323,7 @@ export default function AdminPage() {
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "filtros" && <FilterTesterView {...{ resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest }} />}
           {view === "query" && <QueryView {...{ qSql, setQSql, qResult, qRunning, runQuery }} />}
-          {view === "views" && <ViewsView {...{ viewsList, vForm, setVForm, createView, deleteView, refreshViewNow, loadViews }} />}
+          {view === "views" && <ViewsView {...{ viewsList, vForm, setVForm, createView, deleteView, refreshViewNow, loadViews, clients }} />}
           {view === "historico" && <HistoricoView {...{ logs, runs, clients, logClient, setLogClient, loadLogs }} />}
           {view === "config" && <ConfigView {...{ settings, saveSettings }} />}
           {view === "usuarios" && <UsersView {...{ users, nu, setNu, createUserFn, delUser, loadUsers }} />}
@@ -763,17 +763,27 @@ const QUERY_PRESETS: { label: string; sql: string }[] = [
 ];
 
 function ViewsView(p: any) {
-  const { viewsList, vForm, setVForm, createView, deleteView, refreshViewNow, loadViews } = p;
+  const { viewsList, vForm, setVForm, createView, deleteView, refreshViewNow, loadViews, clients } = p;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const clientName = (id: string) => (clients || []).find((c: any) => c.id === id)?.slug || id?.slice(0, 8);
   const inp = { width: "100%", padding: 8, background: "var(--bg)", color: "var(--txt)", border: "1px solid var(--line)", borderRadius: "var(--r2)" } as any;
   return (
     <>
       <section className="card">
         <div className="card-head"><h2>Nova view</h2></div>
-        <p className="card-desc">Defina uma <b>SELECT</b> sobre as tabelas extraídas. A SQL <b>precisa expor <code>client_id</code></b> — a entrega é escopada pelo token do cliente em <code>GET /api/views/&lt;slug&gt;</code>. Marque <b>materialized</b> p/ pré-computar (atualizada por cron no intervalo).</p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <p className="card-desc">Defina uma <b>SELECT</b> sobre as tabelas extraídas, entregue em <code>GET /api/views/&lt;slug&gt;</code>. Escopo:<br />
+          • <b>Compartilhada</b> (sem dono): a SQL precisa expor <code>client_id</code> — cada cliente vê só as próprias linhas.<br />
+          • <b>Do cliente</b> (com dono): <b>só o token desse cliente</b> acessa o slug; os outros nem enxergam.<br />
+          Marque <b>materialized</b> p/ pré-computar (atualizada por cron no intervalo).</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
           <label className="fld"><span>slug (URL)</span><input style={inp} value={vForm.slug} onChange={(e) => setVForm({ ...vForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="atendimentos_resumo" /></label>
           <label className="fld"><span>Nome</span><input style={inp} value={vForm.name} onChange={(e) => setVForm({ ...vForm, name: e.target.value })} placeholder="Resumo de atendimentos" /></label>
+          <label className="fld"><span>Dono (escopo)</span>
+            <select style={inp} value={vForm.client_id} onChange={(e) => setVForm({ ...vForm, client_id: e.target.value })}>
+              <option value="">Compartilhada (todos, por linha)</option>
+              {(clients || []).map((c: any) => <option key={c.id} value={c.id}>Só {c.name || c.slug}</option>)}
+            </select>
+          </label>
         </div>
         <label className="fld"><span>SQL (SELECT … com client_id)</span>
           <textarea value={vForm.sql} onChange={(e) => setVForm({ ...vForm, sql: e.target.value })} rows={6}
@@ -797,12 +807,13 @@ function ViewsView(p: any) {
         <div className="card-head"><h2>Views</h2><span className="sp" /><button className="ghost xs" onClick={loadViews}>↻ Atualizar</button></div>
         <div className="tbl-wrap">
           <table>
-            <thead><tr><th>Slug</th><th>Tipo</th><th>Endpoint do cliente</th><th>Refresh</th><th>Último</th><th></th></tr></thead>
+            <thead><tr><th>Slug</th><th>Tipo</th><th>Dono</th><th>Endpoint do cliente</th><th>Refresh</th><th>Último</th><th></th></tr></thead>
             <tbody>
               {viewsList.map((v: any) => (
                 <tr key={v.slug}>
                   <td><b>{v.slug}</b><br /><span className="muted">{v.name}</span></td>
                   <td>{v.materialized ? <span className="badge">materialized</span> : "view"}</td>
+                  <td>{v.client_id ? <b>{clientName(v.client_id)}</b> : <span className="muted">compartilhada</span>}</td>
                   <td className="mono" style={{ fontSize: 12 }}>{origin}/api/views/{v.slug}</td>
                   <td>{v.materialized ? `${v.refresh_interval_minutes}min` : "—"}</td>
                   <td className="mono" style={{ fontSize: 12 }}>
@@ -815,7 +826,7 @@ function ViewsView(p: any) {
                   </td>
                 </tr>
               ))}
-              {viewsList.length === 0 && <tr><td colSpan={6} className="empty">Nenhuma view ainda.</td></tr>}
+              {viewsList.length === 0 && <tr><td colSpan={7} className="empty">Nenhuma view ainda.</td></tr>}
             </tbody>
           </table>
         </div>
