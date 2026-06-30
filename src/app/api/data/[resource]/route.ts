@@ -1,6 +1,5 @@
 import { withApiAuth, json, error } from "@/lib/http";
 import * as repo from "@/lib/repo";
-import { config } from "@/lib/config";
 import { isValidResource, RESOURCE_KEYS } from "@/lib/resources";
 import { cacheGet, cacheSet, buildDataKey } from "@/lib/cache";
 
@@ -9,15 +8,17 @@ export const dynamic = "force-dynamic";
 
 const MAX_LIMIT = 1000;
 
-// Estratégia de cache: dados FINAIS (sem atualização há >X dias OU com início e
-// fim preenchidos) não mudam mais → TTL longo. O resto usa o TTL curto padrão.
-function isFinalResult(rows: any[], resource: string, finalDays: number): boolean {
+// Estratégia de cache: SÓ dados ANTIGOS (data do registro > N dias atrás) entram
+// no cache (TTL longo) — não mudam mais. Recente (≤ N dias) NUNCA é cacheado:
+// vai sempre ao banco. Campo de data por recurso (negócio), fallback synced_at.
+const DATE_FIELD: Record<string, string> = { atendimentos: "aberto_em", mensagens: "enviado_em" };
+function isHistorical(rows: any[], resource: string, olderThanDays: number): boolean {
   if (!rows.length) return false;
-  const cutoff = Date.now() - finalDays * 86400_000;
+  const cutoff = Date.now() - olderThanDays * 86400_000;
+  const field = DATE_FIELD[resource] || "synced_at";
   return rows.every((r) => {
-    const stale = r.synced_at && Date.parse(r.synced_at) < cutoff;
-    const closed = resource === "atendimentos" && r.aberto_em && r.encerrado_em;
-    return stale || closed;
+    const raw = r[field] ?? r.synced_at;
+    return raw && Date.parse(raw) < cutoff;
   });
 }
 
@@ -93,12 +94,13 @@ export const GET = withApiAuth(async (req, { params }, principal) => {
     data: rows,
   };
 
-  // TTL adaptativo: dados finais ficam muito mais tempo em cache.
+  // SÓ cacheia se TODO o resultado for antigo (> N dias). Recente = sempre banco.
   const s = await cachedSettings();
-  const finalDays = Number(s.cache_final_days ?? 7);
-  const ttl = isFinalResult(rows as any[], resource, finalDays)
-    ? Number(s.cache_final_ttl_hours ?? 24) * 3600
-    : config.cacheTtlSeconds();
-  cacheSet(cacheKey, body, ttl);
+  const olderThanDays = Number(s.cache_older_than_days ?? 30);
+  if (isHistorical(rows as any[], resource, olderThanDays)) {
+    const ttlHours = Number(s.cache_final_ttl_hours ?? 24);
+    cacheSet(cacheKey, body, ttlHours * 3600);
+  }
+  // (recente ou resultado misto: não cacheia → próxima leitura vai ao banco)
   return json(body);
 });
