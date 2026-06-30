@@ -59,6 +59,10 @@ log(`[worker] up — queue=${SYNC_QUEUE} concurrency=${concurrency}`);
 // "running" como "interrupted" (worker reiniciou no meio).
 repo.reconcileStuck(0).then(() => log("[worker] reconcile: presos em running → interrupted")).catch((e) => log(`[worker] reconcile falhou: ${e?.message}`));
 
+// Garante índices das colunas de filtro (server-side, CONCURRENTLY, em bg).
+// Tabelas grandes levam minutos — não bloqueia o worker.
+import("../lib/indexes").then(({ ensureIndexes }) => ensureIndexes(log)).catch((e) => log(`[idx] erro: ${e?.message}`));
+
 async function shutdown() {
   log("[worker] shutting down…");
   await worker.close();
