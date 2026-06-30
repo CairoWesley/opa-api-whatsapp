@@ -157,6 +157,7 @@ export async function syncClient(
       ok_count: results.filter((r) => r.status === "ok").length,
       error_count: results.filter((r) => r.status === "error").length,
       total_upserted: totalUpserted,
+      error: errSummary,
     }).catch(() => {});
   }
 

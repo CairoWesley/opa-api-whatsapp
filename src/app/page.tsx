@@ -651,7 +651,7 @@ function HistoricoView(p: any) {
       </div>
       <div className="tbl-wrap">
         <table>
-          <thead><tr><th>Início</th><th>Cliente</th><th>Tipo</th><th>Status</th><th>Recursos</th><th>OK/Erro</th><th>Registros</th><th>Duração</th></tr></thead>
+          <thead><tr><th>Início</th><th>Cliente</th><th>Tipo</th><th>Status</th><th>Recursos</th><th>OK/Erro</th><th>Registros</th><th>Duração</th><th>Motivo</th></tr></thead>
           <tbody>
             {(runs || []).map((r: any) => (
               <tr key={r.id}>
@@ -663,9 +663,10 @@ function HistoricoView(p: any) {
                 <td><span style={{ color: "var(--ok)" }}>{r.ok_count}</span>/<span style={{ color: r.error_count ? "var(--danger)" : "var(--muted)" }}>{r.error_count}</span></td>
                 <td className="mono">{Number(r.total_upserted).toLocaleString("pt-BR")}</td>
                 <td className="muted">{r.finished_at ? fmtDur((new Date(r.finished_at).getTime() - new Date(r.started_at).getTime())) : "…"}</td>
+                <td style={{ maxWidth: 380 }}>{r.error ? <span style={{ color: "var(--danger)" }} className="mono" title={r.error}>{r.error.length > 90 ? r.error.slice(0, 90) + "…" : r.error}</span> : <span className="muted">—</span>}</td>
               </tr>
             ))}
-            {(!runs || runs.length === 0) && <tr><td colSpan={8} className="empty">Nenhuma execução.</td></tr>}
+            {(!runs || runs.length === 0) && <tr><td colSpan={9} className="empty">Nenhuma execução.</td></tr>}
           </tbody>
         </table>
       </div>

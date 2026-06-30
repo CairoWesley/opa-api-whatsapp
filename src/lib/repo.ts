@@ -200,7 +200,15 @@ export async function ensureSeedUser(): Promise<void> {
 // ── Sync runs + estatísticas ────────────────────────────────────────────────
 // Cria a run no INÍCIO (status running) e devolve o id; atualiza no fim. Assim
 // toda execução fica registrada — mesmo se interrompida.
+// Garante a coluna de MOTIVO do erro em sync_runs (idempotente, 1x/processo).
+let _runColsEnsured = false;
+async function ensureRunCols(): Promise<void> {
+  if (_runColsEnsured) return;
+  await exec(`alter table sync_runs add column if not exists error text`).catch(() => {});
+  _runColsEnsured = true;
+}
 export async function createSyncRun(clientId: string, isFull: boolean, startedAt: string): Promise<string | null> {
+  await ensureRunCols();
   const r = await q1<{ id: string }>(
     `insert into sync_runs (client_id, status, is_full, started_at) values ($1,'running',$2,$3) returning id`,
     [clientId, isFull, startedAt],
@@ -209,8 +217,8 @@ export async function createSyncRun(clientId: string, isFull: boolean, startedAt
 }
 export async function finishSyncRun(id: string, f: Record<string, any>): Promise<void> {
   await exec(
-    `update sync_runs set status=$1, resources_count=$2, ok_count=$3, error_count=$4, total_upserted=$5, finished_at=now() where id=$6`,
-    [f.status, f.resources_count ?? 0, f.ok_count ?? 0, f.error_count ?? 0, f.total_upserted ?? 0, id],
+    `update sync_runs set status=$1, resources_count=$2, ok_count=$3, error_count=$4, total_upserted=$5, error=$6, finished_at=now() where id=$7`,
+    [f.status, f.resources_count ?? 0, f.ok_count ?? 0, f.error_count ?? 0, f.total_upserted ?? 0, f.error ?? null, id],
   );
 }
 // Reconcilia execuções/clientes presos em "running" (worker morreu no meio).
@@ -218,6 +226,7 @@ export async function finishSyncRun(id: string, f: Record<string, any>): Promise
 // excludeClientIds: clientes com job AINDA ativo no BullMQ — nunca marcados
 // interrupted (full grande passa de maxAgeMin sem estar travado).
 export async function reconcileStuck(maxAgeMin = 0, excludeClientIds: string[] = []): Promise<void> {
+  await ensureRunCols();
   const ageRun = maxAgeMin > 0 ? `and started_at < now() - interval '${maxAgeMin} minutes'` : "";
   const params: any[] = [];
   let exclRun = "";
@@ -227,20 +236,20 @@ export async function reconcileStuck(maxAgeMin = 0, excludeClientIds: string[] =
     exclRun = `and client_id <> all($1::uuid[])`;
     exclCli = `and id <> all($1::uuid[])`;
   }
-  await exec(`update sync_runs set status='interrupted', finished_at=now() where status='running' ${ageRun} ${exclRun}`, params);
+  await exec(`update sync_runs set status='interrupted', error=coalesce(error,'interrompido: worker reiniciou ou excedeu o tempo limite'), finished_at=now() where status='running' ${ageRun} ${exclRun}`, params);
   const ageCli = maxAgeMin > 0 ? `and (last_synced_at is null or last_synced_at < now() - interval '${maxAgeMin} minutes')` : "";
   await exec(`update opa_clients set last_sync_status='interrupted', cancel_requested=false where last_sync_status in ('running','queued') ${ageCli} ${exclCli}`, params);
 }
 export async function listRecentRuns(limit = 20): Promise<any[]> {
-  return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
+  return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, left(error, 500) as error, started_at, finished_at
             from sync_runs order by started_at desc limit $1`, [limit]);
 }
 export async function listRuns(clientId: string | null, limit = 100): Promise<any[]> {
   const lim = Math.min(Math.max(limit, 1), 500);
   if (clientId)
-    return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
+    return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, left(error, 500) as error, started_at, finished_at
               from sync_runs where client_id=$1 order by started_at desc limit $2`, [clientId, lim]);
-  return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, started_at, finished_at
+  return q(`select id, client_id, status, is_full, resources_count, ok_count, error_count, total_upserted, left(error, 500) as error, started_at, finished_at
             from sync_runs order by started_at desc limit $1`, [lim]);
 }
 export async function allRunsLite(): Promise<{ client_id: string; status: string; started_at: string; total_upserted: number }[]> {

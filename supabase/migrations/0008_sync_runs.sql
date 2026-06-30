@@ -21,3 +21,6 @@ create index if not exists idx_sync_runs_client on public.sync_runs (client_id, 
 create index if not exists idx_sync_runs_started on public.sync_runs (started_at desc);
 
 alter table public.sync_runs enable row level security;
+
+-- Motivo do erro por execução (mostrado na tabela EXECUÇÕES do painel).
+alter table public.sync_runs add column if not exists error text;
