@@ -3,9 +3,15 @@
 // As rotas administrativas (clientes, sync, docs, auth/login) NÃO entram aqui —
 // são operadas pelo painel. O cliente usa esta API só com o token (Bearer).
 import { RESOURCE_KEYS } from "./resources";
+import { config } from "./config";
 
 export function buildOpenApi(serverUrl?: string) {
-  const server = serverUrl || "/";
+  // URLs de PRODUÇÃO vêm do env (PUBLIC_BASE_URLS, várias por vírgula). Caem
+  // primeiro na lista do Swagger. A URL derivada da request entra como extra.
+  const prod = config.publicBaseUrls();
+  const servers: { url: string; description?: string }[] = prod.map((u) => ({ url: u, description: "Produção" }));
+  if (serverUrl && !prod.includes(serverUrl)) servers.push({ url: serverUrl, description: "Atual" });
+  if (servers.length === 0) servers.push({ url: serverUrl || "/" });
   return {
     openapi: "3.0.3",
     info: {
@@ -40,7 +46,7 @@ export function buildOpenApi(serverUrl?: string) {
         "### Ordenação\n" +
         "`order_by=<campo>` (default `synced_at`) + `order_desc=true|false`.",
     },
-    servers: [{ url: server }],
+    servers,
     tags: [
       { name: "Dados", description: "Leitura paginada e filtrável dos dados extraídos" },
       { name: "Token", description: "Validação do token e seu escopo" },

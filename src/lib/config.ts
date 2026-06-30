@@ -12,6 +12,13 @@ export const config = {
   adminToken: () => required("APP_ADMIN_TOKEN"),
   encryptionKey: () => required("APP_ENCRYPTION_KEY"),
 
+  // URL(s) públicas de produção (Swagger servers, links). Várias por vírgula.
+  publicBaseUrls: () =>
+    (process.env.PUBLIC_BASE_URLS || "")
+      .split(",")
+      .map((s) => s.trim().replace(/\/+$/, ""))
+      .filter(Boolean),
+
   cacheTtlSeconds: () => Number(process.env.CACHE_TTL_SECONDS ?? 60),
   opaPageSize: () => Number(process.env.OPA_PAGE_SIZE ?? 1000),
   opaTimeoutMs: () => Number(process.env.OPA_TIMEOUT_MS ?? 30000),
