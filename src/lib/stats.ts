@@ -1,10 +1,33 @@
 // Agrega as estatísticas da operação para o dashboard. Cacheado ~30s.
 import * as repo from "./repo";
 import { listTokens } from "./api-tokens";
-import { queueCounts } from "./queue";
 import { cacheGet, cacheSet } from "./cache";
+// queue importa BullMQ (deps Node-only). Import LAZY p/ não puxar pro bundle
+// edge via instrumentation.ts (senão `next build` quebra: crypto/stream/path).
+async function queueCountsSafe(): Promise<Record<string, number>> {
+  try {
+    const { queueCounts } = await import("./queue");
+    return (await queueCounts()) as Record<string, number>;
+  } catch {
+    return {};
+  }
+}
 
 const MONTHS = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+
+// Mantém o cache do dashboard SEMPRE quente: a 1ª chamada da rota arma um timer
+// (no processo do app, runtime Node) que reconstrói "stats:overview" a cada
+// STATS_REFRESH_SEC (< TTL 30s). Idempotente (flag global). Roda só no servidor.
+export function startStatsRefresher(): void {
+  const g = globalThis as any;
+  if (g.__statsRefresher) return;
+  g.__statsRefresher = true;
+  const sec = Math.max(Number(process.env.STATS_REFRESH_SEC ?? 25), 5);
+  const tick = () => { buildOverview(true).catch(() => {}); };
+  void tick();
+  const t = setInterval(tick, sec * 1000);
+  (t as any).unref?.();
+}
 
 export async function buildOverview(force = false) {
   if (!force) {
@@ -21,7 +44,7 @@ export async function buildOverview(force = false) {
     repo.allRunsLite(),
     repo.perResourceCounts(),
     listTokens(),
-    queueCounts().catch(() => ({})),
+    queueCountsSafe(),
     repo.tokenCounts(),
     repo.listRecentRuns(20),
     repo.syncTimings(),
