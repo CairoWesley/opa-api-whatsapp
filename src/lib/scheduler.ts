@@ -5,6 +5,7 @@
 import * as repo from "./repo";
 import { enqueueSync, activeSyncClientIds } from "./queue";
 import { revalidateClient } from "./extractor";
+import { refreshDueViews } from "./views";
 import { config } from "./config";
 
 // Maior timestamp de validação dentre os recursos (ms), ou 0 se nunca validou.
@@ -18,12 +19,15 @@ function lastRevalidatedMs(access: Record<string, { at: string }> | null | undef
   return max;
 }
 
-export async function runScheduler(): Promise<{ enqueued: string[]; revalidated: string[] }> {
+export async function runScheduler(): Promise<{ enqueued: string[]; revalidated: string[]; views_refreshed: string[] }> {
   // Config vinda do PAINEL (app_settings), com fallback p/ env.
   const s = await repo.getSettings().catch(() => ({} as Record<string, any>));
   const resyncOn = s.auto_resync_enabled ?? true;
   const revalOn = s.auto_revalidate_enabled ?? true;
   const revalidateMs = Number(s.revalidate_hours ?? config.revalidateHours()) * 3600_000;
+
+  // Atualiza materialized views cujo intervalo venceu (cron interno).
+  const views_refreshed = await refreshDueViews().catch(() => [] as string[]);
 
   // Reconcilia execuções presas (worker que morreu sem reportar). Só marca
   // interrupted as antigas (> stuckReconcileMin) E que NÃO têm job ativo no
@@ -33,7 +37,7 @@ export async function runScheduler(): Promise<{ enqueued: string[]; revalidated:
 
   const enqueued: string[] = [];
   const revalidated: string[] = [];
-  if (!resyncOn && !revalOn) return { enqueued, revalidated };
+  if (!resyncOn && !revalOn) return { enqueued, revalidated, views_refreshed };
 
   const clients = await repo.listClients(true); // só ATIVOS
   const now = Date.now();
@@ -59,5 +63,5 @@ export async function runScheduler(): Promise<{ enqueued: string[]; revalidated:
       }
     }
   }
-  return { enqueued, revalidated };
+  return { enqueued, revalidated, views_refreshed };
 }

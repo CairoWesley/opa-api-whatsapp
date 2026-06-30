@@ -12,7 +12,7 @@ type Client = {
 type ResourceMeta = { key: string; filters: string[] };
 type ApiToken = { id: string; name: string; client_id: string | null; token_prefix: string; scopes: string[]; active: boolean; created_at: string; last_used_at: string | null };
 type SyncLog = { id: string; client_id: string; resource: string; status: string; records_upserted: number; error: string | null; started_at: string; finished_at: string | null };
-type View = "dashboard" | "clientes" | "dados" | "filtros" | "query" | "tokens" | "historico" | "config" | "usuarios" | "docs";
+type View = "dashboard" | "clientes" | "dados" | "filtros" | "query" | "views" | "tokens" | "historico" | "config" | "usuarios" | "docs";
 
 const fmt = (d: string | null) => (d ? new Date(d).toLocaleString("pt-BR") : "—");
 const fmtDur = (ms: number | null) => (ms == null ? "—" : ms < 1000 ? `${ms}ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60000).toFixed(1)}min`);
@@ -72,6 +72,9 @@ export default function AdminPage() {
   const [qSql, setQSql] = useState("select slug, name, last_sync_status, last_synced_at from opa_clients order by created_at limit 20");
   const [qResult, setQResult] = useState<any>(null);
   const [qRunning, setQRunning] = useState(false);
+  // Views SQL entregues ao cliente via token.
+  const [viewsList, setViewsList] = useState<any[]>([]);
+  const [vForm, setVForm] = useState({ slug: "", name: "", sql: "select client_id, count(*) total\nfrom opa_atendimentos\ngroup by client_id", materialized: false, refresh_interval_minutes: 60 });
 
   // testar filtros
   const [ftRes, setFtRes] = useState("atendimentos");
@@ -111,6 +114,20 @@ export default function AdminPage() {
     try { setQResult(await api("/query", { method: "POST", body: JSON.stringify({ sql: qSql }) })); }
     catch (e) { setQResult(null); notify((e as Error).message, false); }
     finally { setQRunning(false); }
+  };
+  const loadViews = useCallback(async () => { setViewsList(await api("/views")); }, [api]);
+  const createView = async () => {
+    if (!vForm.slug.trim() || !vForm.sql.trim()) return notify("Informe slug e SQL", false);
+    try { await api("/views", { method: "POST", body: JSON.stringify(vForm) }); notify("View criada"); setVForm({ ...vForm, slug: "", name: "" }); loadViews(); }
+    catch (e) { notify((e as Error).message, false); }
+  };
+  const deleteView = async (slug: string) => {
+    try { await api(`/views/${slug}`, { method: "DELETE" }); notify("View removida"); loadViews(); }
+    catch (e) { notify((e as Error).message, false); }
+  };
+  const refreshViewNow = async (slug: string) => {
+    try { const r = await api(`/views/${slug}/refresh`, { method: "POST" }); notify(`Atualizada ${r.last_refreshed_at ? new Date(r.last_refreshed_at).toLocaleTimeString() : ""}`); loadViews(); }
+    catch (e) { notify((e as Error).message, false); }
   };
   const runFilterTest = async () => {
     const qs = new URLSearchParams({ limit: "20" });
@@ -169,6 +186,7 @@ export default function AdminPage() {
   useEffect(() => { if (authed && view === "dashboard") { loadTokens().catch(() => {}); loadOverview().catch((e) => notify(e.message, false)); } }, [authed, view, loadTokens, loadOverview]);
   useEffect(() => { if (authed && view === "config") loadSettings().catch((e) => notify(e.message, false)); }, [authed, view, loadSettings]);
   useEffect(() => { if (authed && view === "usuarios") loadUsers().catch((e) => notify(e.message, false)); }, [authed, view, loadUsers]);
+  useEffect(() => { if (authed && view === "views") loadViews().catch((e) => notify(e.message, false)); }, [authed, view, loadViews]);
   useEffect(() => { if (authed && view === "historico") loadLogs(logClient).catch((e) => notify(e.message, false)); }, [authed, view, logClient, loadLogs]);
   useEffect(() => { if (authed && view === "docs" && docList.length === 0) loadDocList().then((d) => d[0] && openDoc(d[0].slug)).catch(() => {}); }, [authed, view, docList.length, loadDocList, openDoc]);
 
@@ -256,18 +274,20 @@ export default function AdminPage() {
     { v: "dados", ico: "🔎", label: "Explorar dados" },
     { v: "filtros", ico: "🧪", label: "Testar filtros" },
     { v: "query", ico: "📐", label: "Query SQL" },
+    { v: "views", ico: "🧩", label: "Views (API)" },
     { v: "tokens", ico: "🔑", label: "Tokens de API" },
     { v: "historico", ico: "🕑", label: "Histórico de sync" },
     ...(isAdmin ? [{ v: "config" as View, ico: "⚙️", label: "Configurações" }, { v: "usuarios" as View, ico: "👤", label: "Usuários" }] : []),
     { v: "docs", ico: "📚", label: "Documentação" },
   ];
-  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", filtros: "Testar filtros", query: "Query SQL", tokens: "Tokens de API", historico: "Histórico de sincronização", config: "Configurações", usuarios: "Usuários", docs: "Documentação" };
+  const titles: Record<View, string> = { dashboard: "Dashboard", clientes: "Clientes", dados: "Explorar dados", filtros: "Testar filtros", query: "Query SQL", views: "Views (API)", tokens: "Tokens de API", historico: "Histórico de sincronização", config: "Configurações", usuarios: "Usuários", docs: "Documentação" };
   const subs: Record<View, string> = {
     dashboard: "Visão geral por cliente — status, tokens e rotas acessíveis",
     clientes: "Tenants OPA Suite — criar, editar, sincronizar",
     dados: "Leitura paginada e filtrável dos dados extraídos",
     filtros: "Monte e teste filtros visualmente — veja como funciona",
     query: "Rode SELECTs no banco (somente leitura)",
+    views: "Views SQL (normal/materialized) entregues ao cliente via token",
     tokens: "Tokens por cliente para acesso à API",
     historico: "Status e motivos de erro por recurso",
     config: "Agendador — re-sync automático e revalidação de token",
@@ -303,6 +323,7 @@ export default function AdminPage() {
           {view === "tokens" && <TokensView {...{ tokens, clients, newTokName, setNewTokName, newTokClient, setNewTokClient, genToken, revealed, setRevealed, revokeToken, toggleToken, loadTokens }} />}
           {view === "filtros" && <FilterTesterView {...{ resources, clients, ftRes, setFtRes, ftClient, setFtClient, ftRows, setFtRows, ftOut, runFilterTest }} />}
           {view === "query" && <QueryView {...{ qSql, setQSql, qResult, qRunning, runQuery }} />}
+          {view === "views" && <ViewsView {...{ viewsList, vForm, setVForm, createView, deleteView, refreshViewNow, loadViews }} />}
           {view === "historico" && <HistoricoView {...{ logs, runs, clients, logClient, setLogClient, loadLogs }} />}
           {view === "config" && <ConfigView {...{ settings, saveSettings }} />}
           {view === "usuarios" && <UsersView {...{ users, nu, setNu, createUserFn, delUser, loadUsers }} />}
@@ -740,6 +761,68 @@ const QUERY_PRESETS: { label: string; sql: string }[] = [
   { label: "Top departamentos", sql: "select departamento, count(*) as total\nfrom opa_atendimentos\nwhere departamento is not null\ngroup by departamento order by total desc limit 10" },
   { label: "Tempo médio de sync por cliente", sql: "select c.slug, round(avg(extract(epoch from (r.finished_at - r.started_at)) * 1000)) as ms\nfrom sync_runs r join opa_clients c on c.id = r.client_id\nwhere r.finished_at is not null group by c.slug order by ms desc" },
 ];
+
+function ViewsView(p: any) {
+  const { viewsList, vForm, setVForm, createView, deleteView, refreshViewNow, loadViews } = p;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const inp = { width: "100%", padding: 8, background: "var(--bg)", color: "var(--txt)", border: "1px solid var(--line)", borderRadius: "var(--r2)" } as any;
+  return (
+    <>
+      <section className="card">
+        <div className="card-head"><h2>Nova view</h2></div>
+        <p className="card-desc">Defina uma <b>SELECT</b> sobre as tabelas extraídas. A SQL <b>precisa expor <code>client_id</code></b> — a entrega é escopada pelo token do cliente em <code>GET /api/views/&lt;slug&gt;</code>. Marque <b>materialized</b> p/ pré-computar (atualizada por cron no intervalo).</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <label className="fld"><span>slug (URL)</span><input style={inp} value={vForm.slug} onChange={(e) => setVForm({ ...vForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="atendimentos_resumo" /></label>
+          <label className="fld"><span>Nome</span><input style={inp} value={vForm.name} onChange={(e) => setVForm({ ...vForm, name: e.target.value })} placeholder="Resumo de atendimentos" /></label>
+        </div>
+        <label className="fld"><span>SQL (SELECT … com client_id)</span>
+          <textarea value={vForm.sql} onChange={(e) => setVForm({ ...vForm, sql: e.target.value })} rows={6}
+            style={{ ...inp, fontFamily: "var(--f-mono)", fontSize: 13 }} />
+        </label>
+        <div style={{ display: "flex", gap: 16, alignItems: "center", margin: "10px 0" }}>
+          <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="checkbox" checked={vForm.materialized} onChange={(e) => setVForm({ ...vForm, materialized: e.target.checked })} /> materialized
+          </label>
+          {vForm.materialized && (
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              refresh a cada <input type="number" min={1} value={vForm.refresh_interval_minutes} onChange={(e) => setVForm({ ...vForm, refresh_interval_minutes: Number(e.target.value) })} style={{ ...inp, width: 80 }} /> min
+            </label>
+          )}
+          <span className="sp" />
+          <button onClick={createView}>Criar / Salvar</button>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="card-head"><h2>Views</h2><span className="sp" /><button className="ghost xs" onClick={loadViews}>↻ Atualizar</button></div>
+        <div className="tbl-wrap">
+          <table>
+            <thead><tr><th>Slug</th><th>Tipo</th><th>Endpoint do cliente</th><th>Refresh</th><th>Último</th><th></th></tr></thead>
+            <tbody>
+              {viewsList.map((v: any) => (
+                <tr key={v.slug}>
+                  <td><b>{v.slug}</b><br /><span className="muted">{v.name}</span></td>
+                  <td>{v.materialized ? <span className="badge">materialized</span> : "view"}</td>
+                  <td className="mono" style={{ fontSize: 12 }}>{origin}/api/views/{v.slug}</td>
+                  <td>{v.materialized ? `${v.refresh_interval_minutes}min` : "—"}</td>
+                  <td className="mono" style={{ fontSize: 12 }}>
+                    {v.last_error ? <span style={{ color: "var(--err, #e66)" }}>erro: {String(v.last_error).slice(0, 40)}</span>
+                      : v.last_refreshed_at ? new Date(v.last_refreshed_at).toLocaleString() : "—"}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {v.materialized && <button className="ghost xs" onClick={() => refreshViewNow(v.slug)}>↻ refresh</button>}{" "}
+                    <button className="ghost xs" onClick={() => { if (confirm(`Remover view ${v.slug}?`)) deleteView(v.slug); }}>🗑</button>
+                  </td>
+                </tr>
+              ))}
+              {viewsList.length === 0 && <tr><td colSpan={6} className="empty">Nenhuma view ainda.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
 
 function QueryView(p: any) {
   const { qSql, setQSql, qResult, qRunning, runQuery } = p;

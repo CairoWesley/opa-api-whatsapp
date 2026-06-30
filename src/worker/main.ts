@@ -22,8 +22,8 @@ const worker = new Worker<SyncJobData>(
     // Tick do agendador interno (sem log de ruído).
     if (job.name === "tick") {
       const r = await runScheduler();
-      if (r.enqueued.length || r.revalidated.length)
-        log(`[scheduler] enfileirados=[${r.enqueued.join(",")}] revalidados=[${r.revalidated.join(",")}]`);
+      if (r.enqueued.length || r.revalidated.length || r.views_refreshed.length)
+        log(`[scheduler] enfileirados=[${r.enqueued.join(",")}] revalidados=[${r.revalidated.join(",")}] views=[${r.views_refreshed.join(",")}]`);
       return r;
     }
     const { clientId, resources, full } = job.data;
